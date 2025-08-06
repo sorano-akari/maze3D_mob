@@ -107,23 +107,35 @@
         #autoPlayButton:hover {
             background-color: #8e44ad;
         }
+        #soundButton {
+            background-color: #1abc9c;
+        }
+        #soundButton:hover {
+            background-color: #16a085;
+        }
     </style>
 </head>
 <body>
     <img id="mobImage" src="./mob.png" style="display:none;">
     <img id="goalImage" src="./goal.png" style="display:none;">
+    
+    <audio id="bgm" src="./bgm.mp3" loop muted></audio>
+    <audio id="mobCatchSound" src="./mob_catch.m4a" muted></audio>
+    <audio id="footstepSound" src="./footstep.m4a" muted></audio>
+    <audio id="clearSound" src="./clear.mp3" muted></audio>
+
     <div id="start-screen" class="container">
         <h1>3D迷路ゲーム</h1>
 
-    <label for="mazeSize">迷路サイズ:</label>
-    <select id="mazeSize">
-        <option value="10,10">10x10 (正方形)</option>
-        <option value="15,15">15x15 (正方形)</option>
-        <option value="20,20">20x20 (正方形)</option>
-        <option value="30,30">30x30 (正方形)</option>
-        <option value="50,50">50x50 (正方形)</option>
-        <option value="100,100">100x100 (正方形)</option>
-    </select>
+        <label for="mazeSize">迷路サイズ:</label>
+        <select id="mazeSize">
+            <option value="10,10">10x10 (正方形)</option>
+            <option value="15,15">15x15 (正方形)</option>
+            <option value="20,20">20x20 (正方形)</option>
+            <option value="30,30">30x30 (正方形)</option>
+            <option value="50,50">50x50 (正方形)</option>
+            <option value="100,100">100x100 (正方形)</option>
+        </select>
         <label for="mazeAlgorithm">迷路生成アルゴリズム:</label>
         <select id="mazeAlgorithm">
             <option value="dfs">深さ優先探索 (DFS)</option>
@@ -161,6 +173,7 @@
                 <button id="retry-button" style="display:none;">もう一度プレイ</button>
                 <button id="giveUpButton">ギブアップ</button>
                 <button id="autoPlayButton">オートプレイ</button>
+                <button id="soundButton">音声ON/OFF</button>
             </div>
         </div>
         <canvas id="mazeCanvas2D" width="300" height="600"></canvas>
@@ -168,94 +181,83 @@
 
     <script>
         const canvas3D = document.getElementById('mazeCanvas3D');
-    const ctx3D = canvas3D.getContext('2d');
-    const canvas2D = document.getElementById('mazeCanvas2D');
-    const ctx2D = canvas2D.getContext('2d');
-    const messageDiv = document.getElementById('message');
-    const retryButton = document.getElementById('retry-button');
-    const giveUpButton = document.getElementById('giveUpButton');
-    const autoPlayButton = document.getElementById('autoPlayButton');
-    const startButton = document.getElementById('startButton');
-    const mazeSizeSelect = document.getElementById('mazeSize');
-    const mazeAlgorithmSelect = document.getElementById('mazeAlgorithm');
-    const startScreen = document.getElementById('start-screen');
-    const gameContainer = document.getElementById('game-container');
-    const autoPlaySpeedSelect = document.getElementById('autoPlaySpeed');
-    const mapModeSelect = document.getElementById('mapMode');
-    const mobDifficultySelect = document.getElementById('mobDifficulty');
+        const ctx3D = canvas3D.getContext('2d');
+        const canvas2D = document.getElementById('mazeCanvas2D');
+        const ctx2D = canvas2D.getContext('2d');
+        const messageDiv = document.getElementById('message');
+        const retryButton = document.getElementById('retry-button');
+        const giveUpButton = document.getElementById('giveUpButton');
+        const autoPlayButton = document.getElementById('autoPlayButton');
+        const startButton = document.getElementById('startButton');
+        const mazeSizeSelect = document.getElementById('mazeSize');
+        const mazeAlgorithmSelect = document.getElementById('mazeAlgorithm');
+        const startScreen = document.getElementById('start-screen');
+        const gameContainer = document.getElementById('game-container');
+        const autoPlaySpeedSelect = document.getElementById('autoPlaySpeed');
+        const mapModeSelect = document.getElementById('mapMode');
+        const mobDifficultySelect = document.getElementById('mobDifficulty');
+        const soundButton = document.getElementById('soundButton');
 
-    let currentMazeRows = 10;
-    let currentMazeCols = 10;
-    let maze = [];
-    let player = { x: 0, y: 0, direction: 1 }; // 0:北, 1:東, 2:南, 3:西
-    let start = { x: 0, y: 0 };
-    let goal = { x: currentMazeCols - 1, y: currentMazeRows - 1 };
-    let visitedPath = [];
+        const bgm = document.getElementById('bgm');
+        const mobCatchSound = document.getElementById('mobCatchSound');
+        const footstepSound = document.getElementById('footstepSound');
+        const clearSound = document.getElementById('clearSound');
+        
+        let currentMazeRows = 10;
+        let currentMazeCols = 10;
+        let maze = [];
+        let player = { x: 0, y: 0, direction: 1 };
+        let start = { x: 0, y: 0 };
+        let goal = { x: currentMazeCols - 1, y: currentMazeRows - 1 };
+        let visitedPath = [];
+        
+        let isChallengeMode = false;
+        let isAutoPlaying = false;
+        let autoPlayInterval = null;
+        let mobMovementTimeout = null;
+        let pathfindingSolution = [];
+        
+        let mobs = []; 
+        const mobImage = document.getElementById('mobImage');
+        
+        let isScreenDimmed = false;
+        let redFilterInterval = null;
+        let postDragDimTimeout = null;
+        
+        const dragDuration = 3000; // 引きずり時間
+        const postDragDimDuration = 15000; // 引きずり後の暗転時間
+        const reAddMobDelay = 3000; // モブ消滅から再配置までの時間
 
-    let isChallengeMode = false;
-    let isAutoPlaying = false;
-    let autoPlayInterval = null;
-    let mobMovementTimeout = null;
-    let pathfindingSolution = [];
+        let isBeingDragged = false;
+        let draggingMob = null;
+        let draggingMobMoveInterval = null;
+        let mobsAreEnabled = true;
 
-    // モブのデータ構造
-    let mobs = []; 
-    const mobImage = document.getElementById('mobImage');
-    
-    // 画面の明るさに関する変数
-    let isScreenDimmed = false;
-    let dimTimer = null;
-    let redFilterInterval = null;
-    const dimDuration = 3000; // 3秒
-    
-    // モブに引きずられている状態を管理する変数
-    let isBeingDragged = false;
-    let draggingMob = null;
-    let mobsAreEnabled = true;
+        let stepsTaken = 0;
+        let isSoundOn = false;
 
-    document.addEventListener('DOMContentLoaded', initializeGame);
+        document.addEventListener('DOMContentLoaded', initializeGame);
 
-    function initializeGame() {
-        startButton.addEventListener('click', () => {
-            const [cols, rows] = mazeSizeSelect.value.split(',').map(val => Number(val));
-            currentMazeCols = cols;
-            currentMazeRows = rows;
-            goal = { x: currentMazeCols - 1, y: currentMazeRows - 1 };
-            isChallengeMode = mapModeSelect.value === 'challenge';
-            mobsAreEnabled = mobDifficultySelect.value !== 'none';
-            startScreen.style.display = 'none';
-            gameContainer.style.display = 'flex';
-            startGame();
-        });
+        function initializeGame() {
+            startButton.addEventListener('click', () => {
+                const [cols, rows] = mazeSizeSelect.value.split(',').map(val => Number(val));
+                currentMazeCols = cols;
+                currentMazeRows = rows;
+                goal = { x: currentMazeCols - 1, y: currentMazeRows - 1 };
+                isChallengeMode = mapModeSelect.value === 'challenge';
+                mobsAreEnabled = mobDifficultySelect.value !== 'none';
+                startScreen.style.display = 'none';
+                gameContainer.style.display = 'flex';
+                bgm.load();
+                bgm.play().then(() => {
+                    startGame();
+                }).catch(error => {
+                    console.warn("BGMの自動再生がブロックされました。", error);
+                    startGame();
+                });
+            });
 
-        retryButton.addEventListener('click', () => {
-            const [cols, rows] = mazeSizeSelect.value.split(',').map(val => Number(val));
-            currentMazeCols = cols;
-            currentMazeRows = rows;
-            goal = { x: currentMazeCols - 1, y: currentMazeRows - 1 };
-            isChallengeMode = mapModeSelect.value === 'challenge';
-            mobsAreEnabled = mobDifficultySelect.value !== 'none';
-            startScreen.style.display = 'flex';
-            gameContainer.style.display = 'none';
-            messageDiv.textContent = "";
-            retryButton.style.display = 'none';
-            autoPlayButton.textContent = "オートプレイ";
-            isAutoPlaying = false;
-            isBeingDragged = false;
-            clearInterval(autoPlayInterval);
-            clearInterval(redFilterInterval);
-            clearTimeout(mobMovementTimeout);
-            document.removeEventListener('keydown', handleKeyPress);
-            // タイマーをクリア
-            if (dimTimer) {
-                clearTimeout(dimTimer);
-                isScreenDimmed = false;
-                dimTimer = null;
-            }
-        });
-
-        giveUpButton.addEventListener('click', () => {
-            if (confirm("本当にギブアップしますか？")) {
+            retryButton.addEventListener('click', () => {
                 const [cols, rows] = mazeSizeSelect.value.split(',').map(val => Number(val));
                 currentMazeCols = cols;
                 currentMazeRows = rows;
@@ -271,94 +273,190 @@
                 isBeingDragged = false;
                 clearInterval(autoPlayInterval);
                 clearInterval(redFilterInterval);
+                clearInterval(draggingMobMoveInterval);
                 clearTimeout(mobMovementTimeout);
+                clearTimeout(postDragDimTimeout);
                 document.removeEventListener('keydown', handleKeyPress);
-                // タイマーをクリア
-                if (dimTimer) {
-                    clearTimeout(dimTimer);
-                    isScreenDimmed = false;
-                    dimTimer = null;
+                bgm.pause();
+                bgm.currentTime = 0;
+            });
+
+            giveUpButton.addEventListener('click', () => {
+                if (confirm("本当にギブアップしますか？")) {
+                    const [cols, rows] = mazeSizeSelect.value.split(',').map(val => Number(val));
+                    currentMazeCols = cols;
+                    currentMazeRows = rows;
+                    goal = { x: currentMazeCols - 1, y: currentMazeRows - 1 };
+                    isChallengeMode = mapModeSelect.value === 'challenge';
+                    mobsAreEnabled = mobDifficultySelect.value !== 'none';
+                    startScreen.style.display = 'flex';
+                    gameContainer.style.display = 'none';
+                    messageDiv.textContent = "";
+                    retryButton.style.display = 'none';
+                    autoPlayButton.textContent = "オートプレイ";
+                    isAutoPlaying = false;
+                    isBeingDragged = false;
+                    clearInterval(autoPlayInterval);
+                    clearInterval(redFilterInterval);
+                    clearInterval(draggingMobMoveInterval);
+                    clearTimeout(mobMovementTimeout);
+                    clearTimeout(postDragDimTimeout);
+                    document.removeEventListener('keydown', handleKeyPress);
+                    bgm.pause();
+                    bgm.currentTime = 0;
                 }
-            }
-        });
+            });
 
-        autoPlayButton.addEventListener('click', toggleAutoPlay);
-    }
-
-    function initializeMaze(rows, cols, allWalls = true) {
-        maze = Array(rows).fill(null).map(() => Array(cols).fill(null).map(() => ({
-            top: allWalls, right: allWalls, bottom: allWalls, left: allWalls, visited: false
-        })));
-        visitedPath = [];
-    }
-    
-    // モブの初期化
-    function initMobs() {
-        if (!mobsAreEnabled) {
-            mobs = [];
-            return;
+            autoPlayButton.addEventListener('click', toggleAutoPlay);
+            soundButton.addEventListener('click', toggleSound);
         }
 
-        const difficulty = mobDifficultySelect.value;
-        let mobDensity;
-
-        switch (difficulty) {
-            case 'easy': mobDensity = 50; break;
-            case 'normal': mobDensity = 33; break;
-            case 'hard': mobDensity = 25; break;
-            case 'death': mobDensity = 20; break;
-            default: mobDensity = 100; break; // デフォルトはnormalに合わせておく
+        function toggleSound() {
+            isSoundOn = !isSoundOn;
+            bgm.muted = !isSoundOn;
+            mobCatchSound.muted = !isSoundOn;
+            footstepSound.muted = !isSoundOn;
+            clearSound.muted = !isSoundOn;
         }
-        const numOfMobs = Math.max(1, Math.floor((currentMazeRows * currentMazeCols) / mobDensity));
 
-        mobs = [];
-        let attempts = 0;
-        const maxAttempts = currentMazeCols * currentMazeRows * 10;
+        function initializeMaze(rows, cols, allWalls = true) {
+            maze = Array(rows).fill(null).map(() => Array(cols).fill(null).map(() => ({
+                top: allWalls, right: allWalls, bottom: allWalls, left: allWalls, visited: false
+            })));
+            visitedPath = [];
+        }
 
-        for (let i = 0; i < numOfMobs; i++) {
+        function createMob() {
             let x, y;
             let foundSpot = false;
-            attempts = 0;
+            let attempts = 0;
+            const maxAttempts = currentMazeCols * currentMazeRows * 10;
             do {
                 x = Math.floor(Math.random() * currentMazeCols);
                 y = Math.floor(Math.random() * currentMazeRows);
                 attempts++;
-                if ((x !== start.x || y !== start.y) && (x !== goal.x || y !== goal.y)) {
+                const isTooCloseToPlayer = Math.abs(x - player.x) <= 2 && Math.abs(y - player.y) <= 2;
+                if ((x !== start.x || y !== start.y) && (x !== goal.x || y !== goal.y) && !isTooCloseToPlayer) {
                     foundSpot = true;
                 }
             } while (!foundSpot && attempts < maxAttempts);
-
             if (foundSpot) {
                 const randomHue = Math.floor(Math.random() * 360);
-                mobs.push({
+                return {
                     x: x,
                     y: y,
                     direction: 0, 
                     image: mobImage,
                     filter: `hue-rotate(${randomHue}deg)`
-                });
+                };
+            }
+            return null;
+        }
+
+        function initMobs() {
+            if (!mobsAreEnabled) {
+                mobs = [];
+                return;
+            }
+            const difficulty = mobDifficultySelect.value;
+            let mobDensity;
+            switch (difficulty) {
+                case 'easy': mobDensity = 50; break;
+                case 'normal': mobDensity = 33; break;
+                case 'hard': mobDensity = 25; break;
+                case 'death': mobDensity = 20; break;
+                default: mobDensity = 100; break;
+            }
+            const numOfMobs = Math.max(1, Math.floor((currentMazeRows * currentMazeCols) / mobDensity));
+            mobs = [];
+            for (let i = 0; i < numOfMobs; i++) {
+                const newMob = createMob();
+                if (newMob) {
+                    mobs.push(newMob);
+                }
             }
         }
-    }
+        
+        function reAddMobAfterDelay() {
+            if (!mobsAreEnabled) return;
+            const newMob = createMob();
+            if (newMob) {
+                mobs.push(newMob);
+            }
+            renderGame();
+        }
 
-    // 画面を暗くする効果
-    function startDimEffect(mob) {
-        if (!isBeingDragged) {
+        function moveDraggingMob() {
+            if (!draggingMob) return;
+            const currentCell = maze[draggingMob.y][draggingMob.x];
+            const possibleMoves = [];
+            if (!currentCell.top && draggingMob.y > 0) possibleMoves.push(0);
+            if (!currentCell.right && draggingMob.x < currentMazeCols - 1) possibleMoves.push(1);
+            if (!currentCell.bottom && draggingMob.y < currentMazeRows - 1) possibleMoves.push(2);
+            if (!currentCell.left && draggingMob.x > 0) possibleMoves.push(3);
+
+            let chosenDirection;
+            const dx = goal.x - draggingMob.x;
+            const dy = goal.y - draggingMob.y;
+
+            if (Math.abs(dx) > Math.abs(dy)) {
+                if (dx > 0 && possibleMoves.includes(1)) chosenDirection = 1;
+                else if (dx < 0 && possibleMoves.includes(3)) chosenDirection = 3;
+            }
+            if (!chosenDirection) {
+                if (dy > 0 && possibleMoves.includes(2)) chosenDirection = 2;
+                else if (dy < 0 && possibleMoves.includes(0)) chosenDirection = 0;
+            }
+
+            if (!chosenDirection && possibleMoves.length > 0) {
+                 chosenDirection = possibleMoves[Math.floor(Math.random() * possibleMoves.length)];
+            } else if (!chosenDirection) {
+                return;
+            }
+            
+            let nextX = draggingMob.x;
+            let nextY = draggingMob.y;
+            switch (chosenDirection) {
+                case 0: nextY--; break;
+                case 1: nextX++; break;
+                case 2: nextY++; break;
+                case 3: nextX--; break;
+            }
+
+            if (nextX >= 0 && nextX < currentMazeCols && nextY >= 0 && nextY < currentMazeRows) {
+                draggingMob.x = nextX;
+                draggingMob.y = nextY;
+                draggingMob.direction = chosenDirection;
+                player.x = nextX;
+                player.y = nextY;
+            }
+            if (!visitedPath.some(p => p.x === player.x && p.y === player.y)) {
+                visitedPath.push({ x: player.x, y: player.y });
+            }
+        }
+        
+        function startCaughtEffect(caughtMobIndex) {
+            if (isBeingDragged) return;
+
             const wasAutoPlaying = isAutoPlaying;
             if (wasAutoPlaying) {
                 clearInterval(autoPlayInterval);
                 isAutoPlaying = false; 
                 autoPlayButton.textContent = "オートプレイ"; 
-                document.addEventListener('keydown', handleKeyPress);
             }
-            isScreenDimmed = true;
-            isBeingDragged = true;
-            draggingMob = mob; 
-            messageDiv.textContent = "モブに引きずられている！";
 
-            // 赤フィルタの点滅を開始
+            if (isSoundOn) mobCatchSound.play();
+            
+            isBeingDragged = true;
+            draggingMob = mobs[caughtMobIndex]; 
+            mobs.splice(caughtMobIndex, 1);
+            
+            messageDiv.textContent = "モブに引きずられている！";
+            
             let filterAlpha = 0;
             let filterDirection = 1;
+
+            clearInterval(redFilterInterval);
             redFilterInterval = setInterval(() => {
                 filterAlpha += 0.2 * filterDirection;
                 if (filterAlpha > 0.8) {
@@ -371,37 +469,27 @@
                 renderGame(filterAlpha);
             }, 100);
 
-            dimTimer = setTimeout(() => {
-                isScreenDimmed = false;
-                isBeingDragged = false;
-                
-                // 点滅とタイマーをクリア
-                clearInterval(redFilterInterval);
-                redFilterInterval = null;
-                
-                // 3秒後に再配置
-                const reAddMob = () => {
-                    let newX, newY;
-                    let foundSpot = false;
-                    let attempts = 0;
-                    const maxAttempts = currentMazeCols * currentMazeRows * 10;
-                    do {
-                        newX = Math.floor(Math.random() * currentMazeCols);
-                        newY = Math.floor(Math.random() * currentMazeRows);
-                        attempts++;
-                        if ((newX !== player.x || newY !== player.y) && (newX !== start.x || newY !== start.y) && (newX !== goal.x || newY !== goal.y)) {
-                            foundSpot = true;
-                        }
-                    } while (!foundSpot && attempts < maxAttempts);
-                    if (foundSpot) {
-                        draggingMob.x = newX;
-                        draggingMob.y = newY;
-                    }
-                    draggingMob = null;
-                };
+            clearInterval(draggingMobMoveInterval);
+            draggingMobMoveInterval = setInterval(() => {
+                moveDraggingMob();
+            }, 100);
 
+            // 引きずり効果の終了 (3秒後)
+            setTimeout(() => {
+                clearInterval(redFilterInterval);
+                clearInterval(draggingMobMoveInterval);
+                redFilterInterval = null;
+                draggingMobMoveInterval = null;
+                draggingMob = null;
+                isBeingDragged = false;
+                messageDiv.textContent = "引きずられ終了。行動可能。";
+                
+                // 引きずり後の暗転効果開始
+                isScreenDimmed = true;
+                
+                // モブ再配置 (3秒後)
                 setTimeout(() => {
-                    reAddMob();
+                    reAddMobAfterDelay();
                     if (wasAutoPlaying) {
                         isAutoPlaying = true;
                         autoPlayButton.textContent = "手動プレイに戻る";
@@ -416,864 +504,774 @@
                             document.addEventListener('keydown', handleKeyPress);
                             messageDiv.textContent = "オートプレイ: ゴールへの道が見つかりませんでした。";
                         }
-                    }
-                }, 3000);
-
-                messageDiv.textContent = "";
-                dimTimer = null;
-                renderGame();
-            }, dimDuration);
-        }
-    }
-
-    // モブの移動ロジック
-    function moveMobs() {
-        if (player.x === goal.x && player.y === goal.y) {
-            return;
-        }
-
-        mobs.forEach(mob => {
-            const currentCell = maze[mob.y][mob.x];
-            const possibleMoves = [];
-
-            // 移動可能な方向と境界線をチェック
-            if (!currentCell.top && mob.y > 0) possibleMoves.push(0);
-            if (!currentCell.right && mob.x < currentMazeCols - 1) possibleMoves.push(1);
-            if (!currentCell.bottom && mob.y < currentMazeRows - 1) possibleMoves.push(2);
-            if (!currentCell.left && mob.x > 0) possibleMoves.push(3);
-
-            if (possibleMoves.length > 0) {
-                const randomDirection = possibleMoves[Math.floor(Math.random() * possibleMoves.length)];
-                
-                // 次の移動先を計算
-                let nextX = mob.x;
-                let nextY = mob.y;
-                switch (randomDirection) {
-                    case 0: nextY--; break;
-                    case 1: nextX++; break;
-                    case 2: nextY++; break;
-                    case 3: nextX--; break;
-                }
-
-                // 境界チェックと移動
-                if (nextX >= 0 && nextX < currentMazeCols && nextY >= 0 && nextY < currentMazeRows) {
-                    mob.x = nextX;
-                    mob.y = nextY;
-                    mob.direction = randomDirection;
-
-                    // プレイヤーを引きずっている場合、プレイヤーも同じ位置に移動
-                    if (isBeingDragged && mob === draggingMob) {
-                        player.x = mob.x;
-                        player.y = mob.y;
-                    }
-                }
-            }
-        });
-        
-        // 通常の衝突判定
-        if (!isBeingDragged) {
-            const caughtMob = mobs.find(mob => mob.x === player.x && mob.y === player.y);
-            if (caughtMob) {
-                startDimEffect(caughtMob);
-            }
-        }
-
-        renderGame();
-    }
-
-    // モブの移動ループを開始する関数
-    function startMobMovementLoop() {
-        clearTimeout(mobMovementTimeout);
-        if (player.x === goal.x && player.y === goal.y || !mobsAreEnabled) {
-            return;
-        }
-        
-        const mobSpeed = isBeingDragged ? 200 : 500; // 引きずられている間は高速化 (200ms)、通常時は500ms
-        
-        mobMovementTimeout = setTimeout(() => {
-            moveMobs();
-            startMobMovementLoop(); // 再帰的に呼び出し
-        }, mobSpeed);
-    }
-
-    function drawPseudo3D(redFilterAlpha = 0) {
-        const viewDistance = 10;
-        const viewWidth = canvas3D.width;
-        const viewHeight = canvas3D.height;
-        const horizonY = viewHeight / 2;
-        const halfWidth = viewWidth / 2;
-        const playerHeight = 0.5;
-        const sideLimit = 5;
-
-        ctx3D.clearRect(0, 0, viewWidth, viewHeight);
-        ctx3D.strokeStyle = 'black';
-        ctx3D.lineWidth = 2;
-
-        const checkWall = (x, y, wallType) => {
-            if (x >= 0 && x < currentMazeCols && y >= 0 && y < currentMazeRows) {
-                const cell = maze[y][x];
-                switch (wallType) {
-                    case 'top': return cell.top;
-                    case 'right': return cell.right;
-                    case 'bottom': return cell.bottom;
-                    case 'left': return cell.left;
-                }
-            }
-            return true;
-        };
-
-        // Draw from far to near (z-buffer-like effect)
-        for (let d = viewDistance; d >= 0; d--) {
-            let baseBrightness;
-            if (isScreenDimmed) {
-                if (d === 0) {
-                    baseBrightness = 30; // 手前は明るく
-                } else if (d === 1) {
-                    baseBrightness = 10; // 1セル先は少し暗く
-                } else {
-                    baseBrightness = 3; // 2セル先以降は非常に暗く
-                }
-            } else {
-                baseBrightness = 30 - (d * 10);
-                if (baseBrightness < 15) baseBrightness = 15;
-            }
-
-            const perspective_d = viewWidth / (d + 1);
-            const y_top_d = horizonY - perspective_d * playerHeight;
-            const y_bottom_d = horizonY + perspective_d * (1 - playerHeight);
-            const perspective_d_plus_1 = viewWidth / (d + 2);
-            const y_top_d_plus_1 = horizonY - perspective_d_plus_1 * playerHeight;
-            const y_bottom_d_plus_1 = horizonY + perspective_d_plus_1 * (1 - playerHeight);
-
-            // Draw floors and ceilings
-            const ceilingGradient = ctx3D.createLinearGradient(0, y_top_d, 0, y_top_d_plus_1);
-            ceilingGradient.addColorStop(0, `hsl(210, 20%, ${baseBrightness + 5}%)`);
-            ceilingGradient.addColorStop(1, `hsl(210, 20%, ${baseBrightness}%)`);
-            ctx3D.fillStyle = ceilingGradient;
-            ctx3D.fillRect(0, y_top_d_plus_1, viewWidth, y_top_d - y_top_d_plus_1);
-
-            const floorGradient = ctx3D.createLinearGradient(0, y_bottom_d, 0, y_bottom_d_plus_1);
-            floorGradient.addColorStop(0, `hsl(210, 20%, ${baseBrightness + 5}%)`);
-            floorGradient.addColorStop(1, `hsl(210, 20%, ${baseBrightness}%)`);
-            ctx3D.fillStyle = floorGradient;
-            ctx3D.fillRect(0, y_bottom_d_plus_1, viewWidth, y_bottom_d - y_bottom_d_plus_1);
-
-            // Draw walls, mobs, and goal
-            for (let s = sideLimit; s >= -sideLimit; s--) {
-                const px = player.x;
-                const py = player.y;
-
-                let cellX, cellY;
-                switch (player.direction) {
-                    case 0: cellX = px + s; cellY = py - d; break;
-                    case 1: cellX = px + d; cellY = py + s; break;
-                    case 2: cellX = px - s; cellY = py + d; break;
-                    case 3: cellX = px - d; cellY = py - s; break;
-                }
-
-                const x_d = (offset) => halfWidth + offset * perspective_d;
-                const x_d_plus_1 = (offset) => halfWidth + offset * perspective_d_plus_1;
-
-                const isOutOfBounds = cellX < 0 || cellX >= currentMazeCols || cellY < 0 || cellY >= currentMazeRows;
-                const isGoal = (cellX === goal.x && cellY === goal.y);
-                const mob = mobs.find(m => m.x === cellX && m.y === cellY);
-
-                // 壁の描画情報
-                let wallInfo = {
-                    front: false,
-                    left: false,
-                    right: false
-                };
-
-                if (isOutOfBounds) {
-                    wallInfo.front = true;
-                    wallInfo.left = true;
-                    wallInfo.right = true;
-                } else {
-                    let frontWallType, leftWallType, rightWallType;
-                    switch (player.direction) {
-                        case 0: frontWallType = 'top'; leftWallType = 'left'; rightWallType = 'right'; break;
-                        case 1: frontWallType = 'right'; leftWallType = 'top'; rightWallType = 'bottom'; break;
-                        case 2: frontWallType = 'bottom'; leftWallType = 'right'; rightWallType = 'left'; break;
-                        case 3: frontWallType = 'left'; leftWallType = 'bottom'; rightWallType = 'top'; break;
-                    }
-
-                    // ゴールがいるセルの正面には壁を描画しない
-                    if (!isGoal) {
-                        wallInfo.front = checkWall(cellX, cellY, frontWallType);
-                    }
-                    wallInfo.left = checkWall(cellX, cellY, leftWallType);
-                    wallInfo.right = checkWall(cellX, cellY, rightWallType);
-                }
-
-                // オブジェクトの描画
-                if (isGoal) {
-                    const goalImage = document.getElementById('goalImage');
-                    if (goalImage && goalImage.complete) {
-                        const imageSize = 300 / (d + 1);
-                        const imageX = halfWidth + s * perspective_d_plus_1 - imageSize / 2;
-                        const imageY = y_bottom_d_plus_1 - imageSize;
-                        ctx3D.drawImage(goalImage, imageX, imageY, imageSize, imageSize);
                     } else {
-                        const starSize = 300 / (d + 1);
-                        const starColor = `hsl(60, 100%, ${50 + baseBrightness}%)`;
-                        const starX = halfWidth + s * perspective_d_plus_1;
-                        const starY = y_bottom_d_plus_1 - starSize;
-                        ctx3D.fillStyle = starColor;
-                        ctx3D.font = `${starSize}px sans-serif`;
-                        ctx3D.textAlign = 'center';
-                        ctx3D.textBaseline = 'middle';
-                        ctx3D.fillText('★', starX, starY);
+                        document.addEventListener('keydown', handleKeyPress);
                     }
-                } else if (mob && (!isBeingDragged || mob !== draggingMob)) {
-                    if (mob.image && mob.image.complete) {
-                        ctx3D.save();
-                        ctx3D.filter = mob.filter; // フィルターを適用
-                        const mobSize = 300 / (d + 1);
-                        const mobX = halfWidth + s * perspective_d_plus_1 - mobSize / 2;
-                        const mobY = y_bottom_d_plus_1 - mobSize;
-                        ctx3D.drawImage(mob.image, mobX, mobY, mobSize, mobSize);
-                        ctx3D.restore(); // フィルターをリセット
-                    }
-                }
+                }, reAddMobDelay);
+
+                // 暗転効果の終了 (15秒後)
+                clearTimeout(postDragDimTimeout);
+                postDragDimTimeout = setTimeout(() => {
+                    isScreenDimmed = false;
+                    messageDiv.textContent = "";
+                    renderGame();
+                }, postDragDimDuration);
                 
-                // 壁の描画
-                const gradFront = ctx3D.createLinearGradient(0, y_top_d_plus_1, 0, y_bottom_d_plus_1);
-                gradFront.addColorStop(0, `hsl(210, 10%, ${Math.max(3, baseBrightness)}%)`);
-                gradFront.addColorStop(1, `hsl(210, 10%, ${Math.max(3, baseBrightness + 20)}%)`);
-                ctx3D.fillStyle = gradFront;
-                if (wallInfo.front) {
-                    ctx3D.beginPath();
-                    ctx3D.moveTo(x_d_plus_1(-0.5 + s), y_top_d_plus_1);
-                    ctx3D.lineTo(x_d_plus_1(0.5 + s), y_top_d_plus_1);
-                    ctx3D.lineTo(x_d_plus_1(0.5 + s), y_bottom_d_plus_1);
-                    ctx3D.lineTo(x_d_plus_1(-0.5 + s), y_bottom_d_plus_1);
-                    ctx3D.closePath();
-                    ctx3D.fill();
-                    ctx3D.stroke();
-                }
-
-                const gradLeft = ctx3D.createLinearGradient(0, y_top_d, 0, y_bottom_d);
-                gradLeft.addColorStop(0, `hsl(210, 10%, ${Math.max(3, baseBrightness)}%)`);
-                gradLeft.addColorStop(1, `hsl(210, 10%, ${Math.max(3, baseBrightness + 20)}%)`);
-                ctx3D.fillStyle = gradLeft;
-                if (wallInfo.left) {
-                    ctx3D.beginPath();
-                    ctx3D.moveTo(x_d(-0.5 + s), y_top_d);
-                    ctx3D.lineTo(x_d_plus_1(-0.5 + s), y_top_d_plus_1);
-                    ctx3D.lineTo(x_d_plus_1(-0.5 + s), y_bottom_d_plus_1);
-                    ctx3D.lineTo(x_d(-0.5 + s), y_bottom_d);
-                    ctx3D.closePath();
-                    ctx3D.fill();
-                    ctx3D.stroke();
-                }
-
-                const gradRight = ctx3D.createLinearGradient(0, y_top_d, 0, y_bottom_d);
-                gradRight.addColorStop(0, `hsl(210, 10%, ${Math.max(3, baseBrightness)}%)`);
-                gradRight.addColorStop(1, `hsl(210, 10%, ${Math.max(3, baseBrightness + 20)}%)`);
-                ctx3D.fillStyle = gradRight;
-                if (wallInfo.right) {
-                    ctx3D.beginPath();
-                    ctx3D.moveTo(x_d(0.5 + s), y_top_d);
-                    ctx3D.lineTo(x_d_plus_1(0.5 + s), y_top_d_plus_1);
-                    ctx3D.lineTo(x_d_plus_1(0.5 + s), y_bottom_d_plus_1);
-                    ctx3D.lineTo(x_d(0.5 + s), y_bottom_d);
-                    ctx3D.closePath();
-                    ctx3D.fill();
-                    ctx3D.stroke();
-                }
-            }
+                renderGame();
+            }, dragDuration);
         }
         
-        // 引きずられているモブを常に表示
-        if (isBeingDragged && draggingMob) {
-            ctx3D.save();
-            ctx3D.filter = draggingMob.filter;
-            const mobSize = 250;
-            const mobX = halfWidth - mobSize / 2;
-            const mobY = horizonY - mobSize / 2;
-            ctx3D.drawImage(draggingMob.image, mobX, mobY, mobSize, mobSize);
-            ctx3D.restore();
-        }
-
-        // 赤フィルタの描画
-        if (redFilterAlpha > 0) {
-            ctx3D.fillStyle = `rgba(255, 0, 0, ${redFilterAlpha})`;
-            ctx3D.fillRect(0, 0, viewWidth, viewHeight);
-        }
-    }
-    
-    function draw2D() {
-        const canvasWidth = canvas2D.clientWidth;
-        const canvasHeight = canvas2D.clientHeight;
-        canvas2D.width = canvasWidth;
-        canvas2D.height = canvasHeight;
-
-        ctx2D.clearRect(0, 0, canvasWidth, canvasHeight);
-        ctx2D.filter = isScreenDimmed ? 'brightness(30%)' : 'none';
-
-        const aspectRatio = currentMazeCols / currentMazeRows;
-        let drawWidth, drawHeight, offsetX, offsetY;
-
-        if (canvasWidth / canvasHeight > aspectRatio) {
-            drawHeight = canvasHeight;
-            drawWidth = canvasHeight * aspectRatio;
-            offsetX = (canvasWidth - drawWidth) / 2;
-            offsetY = 0;
-        } else {
-            drawWidth = canvasWidth;
-            drawHeight = canvasWidth / aspectRatio;
-            offsetX = 0;
-            offsetY = (canvasHeight - drawHeight) / 2;
-        }
-
-        const cellSize = drawWidth / currentMazeCols;
-
-        ctx2D.save();
-        ctx2D.translate(offsetX, offsetY);
-        ctx2D.strokeStyle = '#000';
-        ctx2D.lineWidth = 1;
-
-        const isVisited = (r, c) => visitedPath.some(p => p.x === c && p.y === r);
-
-        for (let r = 0; r < currentMazeRows; r++) {
-            for (let c = 0; c < currentMazeCols; c++) {
-                const cell = maze[r][c];
-                const x = c * cellSize;
-                const y = r * cellSize;
-
-                if (isChallengeMode && !isVisited(r, c) && !(r === start.y && c === start.x) && !(r === goal.y && c === goal.x)) {
-                    continue;
+        function moveMobs() {
+            if (player.x === goal.x && player.y === goal.y) {
+                return;
+            }
+            mobs.forEach(mob => {
+                const currentCell = maze[mob.y][mob.x];
+                const possibleMoves = [];
+                if (!currentCell.top && mob.y > 0) possibleMoves.push(0);
+                if (!currentCell.right && mob.x < currentMazeCols - 1) possibleMoves.push(1);
+                if (!currentCell.bottom && mob.y < currentMazeRows - 1) possibleMoves.push(2);
+                if (!currentCell.left && mob.x > 0) possibleMoves.push(3);
+                if (possibleMoves.length > 0) {
+                    const randomDirection = possibleMoves[Math.floor(Math.random() * possibleMoves.length)];
+                    let nextX = mob.x;
+                    let nextY = mob.y;
+                    switch (randomDirection) {
+                        case 0: nextY--; break;
+                        case 1: nextX++; break;
+                        case 2: nextY++; break;
+                        case 3: nextX--; break;
+                    }
+                    if (nextX >= 0 && nextX < currentMazeCols && nextY >= 0 && nextY < currentMazeRows) {
+                        mob.x = nextX;
+                        mob.y = nextY;
+                        mob.direction = randomDirection;
+                    }
                 }
+            });
 
-                if (cell.top) {
-                    ctx2D.beginPath();
-                    ctx2D.moveTo(x, y);
-                    ctx2D.lineTo(x + cellSize, y);
-                    ctx2D.stroke();
-                }
-                if (cell.right) {
-                    ctx2D.beginPath();
-                    ctx2D.moveTo(x + cellSize, y);
-                    ctx2D.lineTo(x + cellSize, y + cellSize);
-                    ctx2D.stroke();
-                }
-                if (cell.bottom) {
-                    ctx2D.beginPath();
-                    ctx2D.moveTo(x + cellSize, y + cellSize);
-                    ctx2D.lineTo(x, y + cellSize);
-                    ctx2D.stroke();
-                }
-                if (cell.left) {
-                    ctx2D.beginPath();
-                    ctx2D.moveTo(x, y + cellSize);
-                    ctx2D.lineTo(x, y);
-                    ctx2D.stroke();
+            if (!isBeingDragged) {
+                const caughtMobIndex = mobs.findIndex(mob => mob.x === player.x && mob.y === player.y);
+                if (caughtMobIndex > -1) {
+                    startCaughtEffect(caughtMobIndex);
                 }
             }
+            renderGame();
         }
-
-        ctx2D.fillStyle = '#2ecc71';
-        ctx2D.fillRect(start.x * cellSize, start.y * cellSize, cellSize, cellSize);
-
-        ctx2D.fillStyle = '#f1c40f';
-        ctx2D.fillRect(goal.x * cellSize, goal.y * cellSize, cellSize, cellSize);
-
-        // モブを2Dマップに描画
-        mobs.forEach(mob => {
-            ctx2D.fillStyle = '#e74c3c';
-            ctx2D.beginPath();
-            ctx2D.arc(mob.x * cellSize + cellSize / 2, mob.y * cellSize + cellSize / 2, cellSize / 3, 0, Math.PI * 2);
-            ctx2D.fill();
-        });
-
-        ctx2D.fillStyle = '#3498db';
-        ctx2D.beginPath();
-        ctx2D.arc(player.x * cellSize + cellSize / 2, player.y * cellSize + cellSize / 2, cellSize / 3, 0, Math.PI * 2);
-        ctx2D.fill();
-
-        ctx2D.strokeStyle = '#3498db';
-        ctx2D.lineWidth = 2;
-        ctx2D.beginPath();
-        const arrowX = player.x * cellSize + cellSize / 2;
-        const arrowY = player.y * cellSize + cellSize / 2;
-        const arrowLength = cellSize / 2.5;
-
-        ctx2D.moveTo(arrowX, arrowY);
-        switch(player.direction) {
-            case 0: // 北
-                ctx2D.lineTo(arrowX, arrowY - arrowLength);
-                break;
-            case 1: // 東
-                ctx2D.lineTo(arrowX + arrowLength, arrowY);
-                break;
-            case 2: // 南
-                ctx2D.lineTo(arrowX, arrowY + arrowLength);
-                break;
-            case 3: // 西
-                ctx2D.lineTo(arrowX - arrowLength, arrowY);
-                break;
-        }
-        ctx2D.stroke();
-        ctx2D.restore();
-        ctx2D.filter = 'none';
-    }
-
-    function generateMazeDFS(r, c) {
-        maze[r][c].visited = true;
-        const directions = shuffle([[0, 1], [0, -1], [1, 0], [-1, 0]]);
-
-        for (const [dr, dc] of directions) {
-            const nr = r + dr;
-            const nc = c + dc;
-
-            if (nr >= 0 && nr < currentMazeRows && nc >= 0 && nc < currentMazeCols && !maze[nr][nc].visited) {
-                if (dr === 0 && dc === 1) {
-                    maze[r][c].right = false;
-                    maze[nr][nc].left = false;
-                } else if (dr === 0 && dc === -1) {
-                    maze[r][c].left = false;
-                    maze[nr][nc].right = false;
-                } else if (dr === 1 && dc === 0) {
-                    maze[r][c].bottom = false;
-                    maze[nr][nc].top = false;
-                } else if (dr === -1 && dc === 0) {
-                    maze[r][c].top = false;
-                    maze[nr][nc].bottom = false;
-                }
-                generateMazeDFS(nr, nc);
-            }
-        }
-    }
-
-    function generateMazePrim(startR, startC) {
-        const walls = [];
-
-        maze[startR][startC].visited = true;
-        addWalls(startR, startC, walls);
-
-        while (walls.length > 0) {
-            const wallIndex = Math.floor(Math.random() * walls.length);
-            const [r, c, dir] = walls[wallIndex];
-
-            let newR, newC;
-            if (dir === 'top') {
-                newR = r - 1;
-                newC = c;
-            } else if (dir === 'right') {
-                newR = r;
-                newC = c + 1;
-            } else if (dir === 'bottom') {
-                newR = r + 1;
-                newC = c;
-            } else {
-                newR = r;
-                newC = c - 1;
-            }
-
-            if (newR >= 0 && newR < currentMazeRows && newC >= 0 && newC < currentMazeCols && !maze[newR][newC].visited) {
-                if (dir === 'top') {
-                    maze[r][c].top = false;
-                    maze[newR][newC].bottom = false;
-                } else if (dir === 'right') {
-                    maze[r][c].right = false;
-                    maze[newR][newC].left = false;
-                } else if (dir === 'bottom') {
-                    maze[r][c].bottom = false;
-                    maze[newR][newC].top = false;
-                } else {
-                    maze[r][c].left = false;
-                    maze[newR][newC].right = false;
-                }
-
-                maze[newR][newC].visited = true;
-                addWalls(newR, newC, walls);
-            }
-
-            walls.splice(wallIndex, 1);
-        }
-    }
-
-    function addWalls(r, c, walls) {
-        if (r > 0 && !maze[r - 1][c].visited) walls.push([r, c, 'top']);
-        if (c < currentMazeCols - 1 && !maze[r][c + 1].visited) walls.push([r, c, 'right']);
-        if (r < currentMazeRows - 1 && !maze[r + 1][c].visited) walls.push([r, c, 'bottom']);
-        if (c > 0 && !maze[r][c - 1].visited) walls.push([r, c, 'left']);
-    }
-
-    function generateMazeRecursiveDivision(x, y, width, height) {
-        if (width < 2 || height < 2) {
-            return;
-        }
-
-        const horizontalSplit = height > width || (height === width && Math.random() < 0.5);
-
-        if (horizontalSplit) {
-            const wallY = y + Math.floor(Math.random() * (height - 1));
-            const passageX = x + Math.floor(Math.random() * width);
-
-            for (let i = x; i < x + width; i++) {
-                if (i !== passageX) {
-                    maze[wallY][i].bottom = true;
-                    if (wallY + 1 < currentMazeRows) maze[wallY + 1][i].top = true;
-                }
-            }
-
-            generateMazeRecursiveDivision(x, y, width, wallY - y + 1);
-            generateMazeRecursiveDivision(x, wallY + 1, width, y + height - (wallY + 1));
-        } else {
-            const wallX = x + Math.floor(Math.random() * (width - 1));
-            const passageY = y + Math.floor(Math.random() * height);
-
-            for (let i = y; i < y + height; i++) {
-                if (i !== passageY) {
-                    maze[i][wallX].right = true;
-                    if (wallX + 1 < currentMazeCols) maze[i][wallX + 1].left = true;
-                }
-            }
-
-            generateMazeRecursiveDivision(x, y, wallX - x + 1, height);
-            generateMazeRecursiveDivision(wallX + 1, y, x + width - (wallX + 1), height);
-        }
-    }
-
-    function shuffle(array) {
-        for (let i = array.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [array[i], array[j]] = [array[j], array[i]];
-        }
-        return array;
-    }
-
-    function renderGame(redFilterAlpha = 0) {
-        drawPseudo3D(redFilterAlpha);
-        draw2D();
-
-        if (player.x === goal.x && player.y === goal.y) {
-            messageDiv.textContent = "Clear!";
-            retryButton.style.display = 'block';
-            giveUpButton.style.display = 'none';
-            autoPlayButton.style.display = 'none';
-
-            isAutoPlaying = false;
-            isBeingDragged = false;
-            clearInterval(autoPlayInterval);
-            clearInterval(redFilterInterval);
+        
+        function startMobMovementLoop() {
             clearTimeout(mobMovementTimeout);
-            document.removeEventListener('keydown', handleKeyPress);
-            if (dimTimer) {
-                clearTimeout(dimTimer);
-                isScreenDimmed = false;
-                dimTimer = null;
+            if (player.x === goal.x && player.y === goal.y || !mobsAreEnabled) {
+                return;
             }
-        } else if (!isScreenDimmed) {
-            messageDiv.textContent = "";
+            const mobSpeed = 500; 
+            mobMovementTimeout = setTimeout(() => {
+                moveMobs();
+                startMobMovementLoop();
+            }, mobSpeed);
         }
-    }
-
-    function handleKeyPress(e) {
-        if (player.x === goal.x && player.y === goal.y || isAutoPlaying || isBeingDragged) {
-            return;
-        }
-
-        if (player.y >= currentMazeRows || player.y < 0 || player.x >= currentMazeCols || player.x < 0) {
-            return;
-        }
-        const currentCell = maze[player.y][player.x];
-
-        let newX = player.x;
-        let newY = player.y;
-
-        switch (e.key) {
-            case 'ArrowUp':
-                if (player.direction === 0 && !currentCell.top) newY--;
-                else if (player.direction === 1 && !currentCell.right) newX++;
-                else if (player.direction === 2 && !currentCell.bottom) newY++;
-                else if (player.direction === 3 && !currentCell.left) newX--;
-
-                if (newX >= 0 && newX < currentMazeCols && newY >= 0 && newY < currentMazeRows) {
-                    player.x = newX;
-                    player.y = newY;
+        
+        function drawPseudo3D(redFilterAlpha = 0) {
+            const viewDistance = 10;
+            const viewWidth = canvas3D.width;
+            const viewHeight = canvas3D.height;
+            const horizonY = viewHeight / 2;
+            const halfWidth = viewWidth / 2;
+            const playerHeight = 0.5;
+            const sideLimit = 5;
+            ctx3D.clearRect(0, 0, viewWidth, viewHeight);
+            ctx3D.strokeStyle = 'black';
+            ctx3D.lineWidth = 2;
+            const checkWall = (x, y, wallType) => {
+                if (x >= 0 && x < currentMazeCols && y >= 0 && y < currentMazeRows) {
+                    const cell = maze[y][x];
+                    switch (wallType) {
+                        case 'top': return cell.top;
+                        case 'right': return cell.right;
+                        case 'bottom': return cell.bottom;
+                        case 'left': return cell.left;
+                    }
                 }
-                break;
-            case 'ArrowDown':
-                let backX = player.x;
-                let backY = player.y;
-                let backCell = null;
-                if (player.direction === 0) {
-                    if (backY < currentMazeRows - 1) backCell = maze[backY + 1][backX];
-                    if (backCell && !backCell.top) backY++;
-                } else if (player.direction === 1) {
-                    if (backX > 0) backCell = maze[backY][backX - 1];
-                    if (backCell && !backCell.right) backX--;
-                } else if (player.direction === 2) {
-                    if (backY > 0) backCell = maze[backY - 1][backX];
-                    if (backCell && !backCell.bottom) backY--;
-                } else if (player.direction === 3) {
-                    if (backX < currentMazeCols - 1) backCell = maze[backY][backX + 1];
-                    if (backCell && !backCell.left) backX++;
+                return true;
+            };
+            for (let d = viewDistance; d >= 0; d--) {
+                let baseBrightness;
+                if (isScreenDimmed || isBeingDragged) {
+                    baseBrightness = 30 - (d * 20);
+                    if (baseBrightness < 5) baseBrightness = 5;
+                } else {
+                    baseBrightness = 30 - (d * 10);
+                    if (baseBrightness < 15) baseBrightness = 15;
                 }
-
-                if (backX >= 0 && backX < currentMazeCols && backY >= 0 && backY < currentMazeRows) {
-                    player.x = backX;
-                    player.y = backY;
+                const perspective_d = viewWidth / (d + 1);
+                const y_top_d = horizonY - perspective_d * playerHeight;
+                const y_bottom_d = horizonY + perspective_d * (1 - playerHeight);
+                const perspective_d_plus_1 = viewWidth / (d + 2);
+                const y_top_d_plus_1 = horizonY - perspective_d_plus_1 * playerHeight;
+                const y_bottom_d_plus_1 = horizonY + perspective_d_plus_1 * (1 - playerHeight);
+                const ceilingGradient = ctx3D.createLinearGradient(0, y_top_d, 0, y_top_d_plus_1);
+                ceilingGradient.addColorStop(0, `hsl(210, 20%, ${baseBrightness + 5}%)`);
+                ceilingGradient.addColorStop(1, `hsl(210, 20%, ${baseBrightness}%)`);
+                ctx3D.fillStyle = ceilingGradient;
+                ctx3D.fillRect(0, y_top_d_plus_1, viewWidth, y_top_d - y_top_d_plus_1);
+                const floorGradient = ctx3D.createLinearGradient(0, y_bottom_d, 0, y_bottom_d_plus_1);
+                floorGradient.addColorStop(0, `hsl(210, 20%, ${baseBrightness + 5}%)`);
+                floorGradient.addColorStop(1, `hsl(210, 20%, ${baseBrightness}%)`);
+                ctx3D.fillStyle = floorGradient;
+                ctx3D.fillRect(0, y_bottom_d_plus_1, viewWidth, y_bottom_d - y_bottom_d_plus_1);
+                for (let s = sideLimit; s >= -sideLimit; s--) {
+                    const px = player.x;
+                    const py = player.y;
+                    let cellX, cellY;
+                    switch (player.direction) {
+                        case 0: cellX = px + s; cellY = py - d; break;
+                        case 1: cellX = px + d; cellY = py + s; break;
+                        case 2: cellX = px - s; cellY = py + d; break;
+                        case 3: cellX = px - d; cellY = py - s; break;
+                    }
+                    const x_d = (offset) => halfWidth + offset * perspective_d;
+                    const x_d_plus_1 = (offset) => halfWidth + offset * perspective_d_plus_1;
+                    const isOutOfBounds = cellX < 0 || cellX >= currentMazeCols || cellY < 0 || cellY >= currentMazeRows;
+                    const isGoal = (cellX === goal.x && cellY === goal.y);
+                    const mob = mobs.find(m => m.x === cellX && m.y === cellY);
+                    let wallInfo = {
+                        front: false,
+                        left: false,
+                        right: false
+                    };
+                    if (isOutOfBounds) {
+                        wallInfo.front = true;
+                        wallInfo.left = true;
+                        wallInfo.right = true;
+                    } else {
+                        let frontWallType, leftWallType, rightWallType;
+                        switch (player.direction) {
+                            case 0: frontWallType = 'top'; leftWallType = 'left'; rightWallType = 'right'; break;
+                            case 1: frontWallType = 'right'; leftWallType = 'top'; rightWallType = 'bottom'; break;
+                            case 2: frontWallType = 'bottom'; leftWallType = 'right'; rightWallType = 'left'; break;
+                            case 3: frontWallType = 'left'; leftWallType = 'bottom'; rightWallType = 'top'; break;
+                        }
+                        if (!isGoal) {
+                            wallInfo.front = checkWall(cellX, cellY, frontWallType);
+                        }
+                        wallInfo.left = checkWall(cellX, cellY, leftWallType);
+                        wallInfo.right = checkWall(cellX, cellY, rightWallType);
+                    }
+                    if (isGoal) {
+                        const goalImage = document.getElementById('goalImage');
+                        if (goalImage && goalImage.complete) {
+                            const imageSize = 300 / (d + 1);
+                            const imageX = halfWidth + s * perspective_d_plus_1 - imageSize / 2;
+                            const imageY = y_bottom_d_plus_1 - imageSize;
+                            ctx3D.drawImage(goalImage, imageX, imageY, imageSize, imageSize);
+                        } else {
+                            const starSize = 300 / (d + 1);
+                            const starColor = `hsl(60, 100%, ${50 + baseBrightness}%)`;
+                            const starX = halfWidth + s * perspective_d_plus_1;
+                            const starY = y_bottom_d_plus_1 - starSize;
+                            ctx3D.fillStyle = starColor;
+                            ctx3D.font = `${starSize}px sans-serif`;
+                            ctx3D.textAlign = 'center';
+                            ctx3D.textBaseline = 'middle';
+                            ctx3D.fillText('★', starX, starY);
+                        }
+                    } else if (mob) {
+                        if (mob.image && mob.image.complete) {
+                            ctx3D.save();
+                            ctx3D.filter = mob.filter;
+                            const mobSize = 300 / (d + 1);
+                            const mobX = halfWidth + s * perspective_d_plus_1 - mobSize / 2;
+                            const mobY = y_bottom_d_plus_1 - mobSize;
+                            ctx3D.drawImage(mob.image, mobX, mobY, mobSize, mobSize);
+                            ctx3D.restore();
+                        }
+                    }
+                    const gradFront = ctx3D.createLinearGradient(0, y_top_d_plus_1, 0, y_bottom_d_plus_1);
+                    gradFront.addColorStop(0, `hsl(210, 10%, ${Math.max(3, baseBrightness)}%)`);
+                    gradFront.addColorStop(1, `hsl(210, 10%, ${Math.max(3, baseBrightness + 20)}%)`);
+                    ctx3D.fillStyle = gradFront;
+                    if (wallInfo.front) {
+                        ctx3D.beginPath();
+                        ctx3D.moveTo(x_d_plus_1(-0.5 + s), y_top_d_plus_1);
+                        ctx3D.lineTo(x_d_plus_1(0.5 + s), y_top_d_plus_1);
+                        ctx3D.lineTo(x_d_plus_1(0.5 + s), y_bottom_d_plus_1);
+                        ctx3D.lineTo(x_d_plus_1(-0.5 + s), y_bottom_d_plus_1);
+                        ctx3D.closePath();
+                        ctx3D.fill();
+                        ctx3D.stroke();
+                    }
+                    const gradLeft = ctx3D.createLinearGradient(0, y_top_d, 0, y_bottom_d);
+                    gradLeft.addColorStop(0, `hsl(210, 10%, ${Math.max(3, baseBrightness)}%)`);
+                    gradLeft.addColorStop(1, `hsl(210, 10%, ${Math.max(3, baseBrightness + 20)}%)`);
+                    ctx3D.fillStyle = gradLeft;
+                    if (wallInfo.left) {
+                        ctx3D.beginPath();
+                        ctx3D.moveTo(x_d(-0.5 + s), y_top_d);
+                        ctx3D.lineTo(x_d_plus_1(-0.5 + s), y_top_d_plus_1);
+                        ctx3D.lineTo(x_d_plus_1(-0.5 + s), y_bottom_d_plus_1);
+                        ctx3D.lineTo(x_d(-0.5 + s), y_bottom_d);
+                        ctx3D.closePath();
+                        ctx3D.fill();
+                        ctx3D.stroke();
+                    }
+                    const gradRight = ctx3D.createLinearGradient(0, y_top_d, 0, y_bottom_d);
+                    gradRight.addColorStop(0, `hsl(210, 10%, ${Math.max(3, baseBrightness)}%)`);
+                    gradRight.addColorStop(1, `hsl(210, 10%, ${Math.max(3, baseBrightness + 20)}%)`);
+                    ctx3D.fillStyle = gradRight;
+                    if (wallInfo.right) {
+                        ctx3D.beginPath();
+                        ctx3D.moveTo(x_d(0.5 + s), y_top_d);
+                        ctx3D.lineTo(x_d_plus_1(0.5 + s), y_top_d_plus_1);
+                        ctx3D.lineTo(x_d_plus_1(0.5 + s), y_bottom_d_plus_1);
+                        ctx3D.lineTo(x_d(0.5 + s), y_bottom_d);
+                        ctx3D.closePath();
+                        ctx3D.fill();
+                        ctx3D.stroke();
+                    }
                 }
-                break;
-            case 'ArrowLeft':
-                player.direction = (player.direction - 1 + 4) % 4;
-                break;
-            case 'ArrowRight':
-                player.direction = (player.direction + 1) % 4;
-                break;
-        }
-
-        if (!visitedPath.some(p => p.x === player.x && p.y === player.y)) {
-            visitedPath.push({ x: player.x, y: player.y });
-        }
-
-        // 移動後にモブと接触したかチェック
-        const caughtMob = mobs.find(mob => mob.x === player.x && mob.y === player.y);
-        if (mobsAreEnabled && caughtMob) {
-            startDimEffect(caughtMob);
-        }
-
-        renderGame();
-    }
-
-    function startGame() {
-        clearInterval(autoPlayInterval);
-        clearInterval(redFilterInterval);
-        clearTimeout(mobMovementTimeout); // 以前のモブ移動を停止
-        if (dimTimer) { // 前回のプレイで残っているタイマーをクリア
-            clearTimeout(dimTimer);
-            isScreenDimmed = false;
-            dimTimer = null;
-        }
-        isAutoPlaying = false;
-        isBeingDragged = false;
-        autoPlayButton.textContent = "オートプレイ";
-
-        canvas3D.width = 800;
-        canvas3D.height = 600;
-        canvas2D.width = 300;
-        canvas2D.height = 600;
-
-        start = { x: 0, y: 0 };
-        goal = { x: currentMazeCols - 1, y: currentMazeRows - 1 };
-
-        const selectedAlgorithm = mazeAlgorithmSelect.value;
-        if (selectedAlgorithm === 'recursiveDivision') {
-            initializeMaze(currentMazeRows, currentMazeCols, false);
-            generateMazeRecursiveDivision(0, 0, currentMazeCols, currentMazeRows);
-            for (let c = 0; c < currentMazeCols; c++) {
-                maze[0][c].top = true;
-                maze[currentMazeRows - 1][c].bottom = true;
             }
+            if (isBeingDragged && draggingMob) {
+                ctx3D.save();
+                ctx3D.filter = draggingMob.filter;
+                const mobSize = 250;
+                const mobX = halfWidth - mobSize / 2;
+                const mobY = horizonY - mobSize / 2;
+                ctx3D.drawImage(draggingMob.image, mobX, mobY, mobSize, mobSize);
+                ctx3D.restore();
+            }
+            if (redFilterAlpha > 0) {
+                ctx3D.fillStyle = `rgba(255, 0, 0, ${redFilterAlpha})`;
+                ctx3D.fillRect(0, 0, viewWidth, viewHeight);
+            }
+        }
+        
+        function draw2D() {
+            const canvasWidth = canvas2D.clientWidth;
+            const canvasHeight = canvas2D.clientHeight;
+            canvas2D.width = canvasWidth;
+            canvas2D.height = canvasHeight;
+            ctx2D.clearRect(0, 0, canvasWidth, canvasHeight);
+            ctx2D.filter = (isScreenDimmed || isBeingDragged) ? 'brightness(30%)' : 'none';
+            const aspectRatio = currentMazeCols / currentMazeRows;
+            let drawWidth, drawHeight, offsetX, offsetY;
+            if (canvasWidth / canvasHeight > aspectRatio) {
+                drawHeight = canvasHeight;
+                drawWidth = canvasHeight * aspectRatio;
+                offsetX = (canvasWidth - drawWidth) / 2;
+                offsetY = 0;
+            } else {
+                drawWidth = canvasWidth;
+                drawHeight = canvasWidth / aspectRatio;
+                offsetX = 0;
+                offsetY = (canvasHeight - drawHeight) / 2;
+            }
+            const cellSize = drawWidth / currentMazeCols;
+            ctx2D.save();
+            ctx2D.translate(offsetX, offsetY);
+            ctx2D.strokeStyle = '#000';
+            ctx2D.lineWidth = 1;
+            const isVisited = (r, c) => visitedPath.some(p => p.x === c && p.y === r);
             for (let r = 0; r < currentMazeRows; r++) {
-                maze[r][0].left = true;
-                maze[r][currentMazeCols - 1].right = true;
+                for (let c = 0; c < currentMazeCols; c++) {
+                    const cell = maze[r][c];
+                    const x = c * cellSize;
+                    const y = r * cellSize;
+                    if (isChallengeMode && !isVisited(r, c) && !(r === start.y && c === start.x) && !(r === goal.y && c === goal.x)) {
+                        continue;
+                    }
+                    if (cell.top) {
+                        ctx2D.beginPath();
+                        ctx2D.moveTo(x, y);
+                        ctx2D.lineTo(x + cellSize, y);
+                        ctx2D.stroke();
+                    }
+                    if (cell.right) {
+                        ctx2D.beginPath();
+                        ctx2D.moveTo(x + cellSize, y);
+                        ctx2D.lineTo(x + cellSize, y + cellSize);
+                        ctx2D.stroke();
+                    }
+                    if (cell.bottom) {
+                        ctx2D.beginPath();
+                        ctx2D.moveTo(x + cellSize, y + cellSize);
+                        ctx2D.lineTo(x, y + cellSize);
+                        ctx2D.stroke();
+                    }
+                    if (cell.left) {
+                        ctx2D.beginPath();
+                        ctx2D.moveTo(x, y + cellSize);
+                        ctx2D.lineTo(x, y);
+                        ctx2D.stroke();
+                    }
+                }
             }
-        } else {
-            initializeMaze(currentMazeRows, currentMazeCols, true);
-            if (selectedAlgorithm === 'prim') {
-                generateMazePrim(0, 0);
-            } else {
-                generateMazeDFS(0, 0);
+            ctx2D.fillStyle = '#2ecc71';
+            ctx2D.fillRect(start.x * cellSize, start.y * cellSize, cellSize, cellSize);
+            ctx2D.fillStyle = '#f1c40f';
+            ctx2D.fillRect(goal.x * cellSize, goal.y * cellSize, cellSize, cellSize);
+            mobs.forEach(mob => {
+                ctx2D.fillStyle = '#e74c3c';
+                ctx2D.beginPath();
+                ctx2D.arc(mob.x * cellSize + cellSize / 2, mob.y * cellSize + cellSize / 2, cellSize / 3, 0, Math.PI * 2);
+                ctx2D.fill();
+            });
+            ctx2D.fillStyle = '#3498db';
+            ctx2D.beginPath();
+            ctx2D.arc(player.x * cellSize + cellSize / 2, player.y * cellSize + cellSize / 2, cellSize / 3, 0, Math.PI * 2);
+            ctx2D.fill();
+            ctx2D.strokeStyle = '#3498db';
+            ctx2D.lineWidth = 2;
+            ctx2D.beginPath();
+            const arrowX = player.x * cellSize + cellSize / 2;
+            const arrowY = player.y * cellSize + cellSize / 2;
+            const arrowLength = cellSize / 2.5;
+            switch(player.direction) {
+                case 0:
+                    ctx2D.moveTo(arrowX - arrowLength / 2, arrowY + arrowLength / 2);
+                    ctx2D.lineTo(arrowX, arrowY - arrowLength / 2);
+                    ctx2D.lineTo(arrowX + arrowLength / 2, arrowY + arrowLength / 2);
+                    ctx2D.lineTo(arrowX - arrowLength / 2, arrowY + arrowLength / 2);
+                    break;
+                case 1:
+                    ctx2D.moveTo(arrowX - arrowLength / 2, arrowY - arrowLength / 2);
+                    ctx2D.lineTo(arrowX + arrowLength / 2, arrowY);
+                    ctx2D.lineTo(arrowX - arrowLength / 2, arrowY + arrowLength / 2);
+                    ctx2D.lineTo(arrowX - arrowLength / 2, arrowY - arrowLength / 2);
+                    break;
+                case 2:
+                    ctx2D.moveTo(arrowX - arrowLength / 2, arrowY - arrowLength / 2);
+                    ctx2D.lineTo(arrowX, arrowY + arrowLength / 2);
+                    ctx2D.lineTo(arrowX + arrowLength / 2, arrowY - arrowLength / 2);
+                    ctx2D.lineTo(arrowX - arrowLength / 2, arrowY - arrowLength / 2);
+                    break;
+                case 3:
+                    ctx2D.moveTo(arrowX + arrowLength / 2, arrowY - arrowLength / 2);
+                    ctx2D.lineTo(arrowX - arrowLength / 2, arrowY);
+                    ctx2D.lineTo(arrowX + arrowLength / 2, arrowY + arrowLength / 2);
+                    ctx2D.lineTo(arrowX + arrowLength / 2, arrowY - arrowLength / 2);
+                    break;
+            }
+            ctx2D.closePath();
+            ctx2D.fill();
+            ctx2D.restore();
+            ctx2D.filter = 'none';
+        }
+        
+        function generateMazeDFS(r, c) {
+            maze[r][c].visited = true;
+            const directions = shuffle([[0, 1], [0, -1], [1, 0], [-1, 0]]);
+            for (const [dr, dc] of directions) {
+                const nr = r + dr;
+                const nc = c + dc;
+                if (nr >= 0 && nr < currentMazeRows && nc >= 0 && nc < currentMazeCols && !maze[nr][nc].visited) {
+                    if (dr === 0 && dc === 1) {
+                        maze[r][c].right = false;
+                        maze[nr][nc].left = false;
+                    } else if (dr === 0 && dc === -1) {
+                        maze[r][c].left = false;
+                        maze[nr][nc].right = false;
+                    } else if (dr === 1 && dc === 0) {
+                        maze[r][c].bottom = false;
+                        maze[nr][nc].top = false;
+                    } else if (dr === -1 && dc === 0) {
+                        maze[r][c].top = false;
+                        maze[nr][nc].bottom = false;
+                    }
+                    generateMazeDFS(nr, nc);
+                }
             }
         }
         
-        initMobs(); 
-
-        player.x = start.x;
-        player.y = start.y;
-        player.direction = 1;
-
-        visitedPath = [];
-        visitedPath.push({ x: player.x, y: player.y });
-
-        document.removeEventListener('keydown', handleKeyPress);
-        document.addEventListener('keydown', handleKeyPress);
-
-        messageDiv.textContent = "";
-        retryButton.style.display = 'none';
-        giveUpButton.style.display = 'inline-block';
-        autoPlayButton.style.display = 'inline-block';
-        
-        // モブが有効な場合のみ移動ループを開始
-        if (mobsAreEnabled) {
-            startMobMovementLoop(); 
+        function generateMazePrim(startR, startC) {
+            const walls = [];
+            maze[startR][startC].visited = true;
+            addWalls(startR, startC, walls);
+            while (walls.length > 0) {
+                const wallIndex = Math.floor(Math.random() * walls.length);
+                const [r, c, dir] = walls[wallIndex];
+                let newR, newC;
+                if (dir === 'top') {
+                    newR = r - 1;
+                    newC = c;
+                } else if (dir === 'right') {
+                    newR = r;
+                    newC = c + 1;
+                } else if (dir === 'bottom') {
+                    newR = r + 1;
+                    newC = c;
+                } else {
+                    newR = r;
+                    newC = c - 1;
+                }
+                if (newR >= 0 && newR < currentMazeRows && newC >= 0 && newC < currentMazeCols && !maze[newR][newC].visited) {
+                    if (dir === 'top') {
+                        maze[r][c].top = false;
+                        maze[newR][newC].bottom = false;
+                    } else if (dir === 'right') {
+                        maze[r][c].right = false;
+                        maze[newR][newC].left = false;
+                    } else if (dir === 'bottom') {
+                        maze[r][c].bottom = false;
+                        maze[newR][newC].top = false;
+                    } else {
+                        maze[r][c].left = false;
+                        maze[newR][newC].right = false;
+                    }
+                    maze[newR][newC].visited = true;
+                    addWalls(newR, newC, walls);
+                }
+                walls.splice(wallIndex, 1);
+            }
         }
-
-        renderGame();
-    }
-
-    function toggleAutoPlay() {
-        if (isScreenDimmed || isBeingDragged) return;
-
-        isAutoPlaying = !isAutoPlaying;
-        if (isAutoPlaying) {
-            autoPlayButton.textContent = "手動プレイに戻る";
-            document.removeEventListener('keydown', handleKeyPress);
-            
-            pathfindingSolution = [];
-            findPathForAutoPlay(player.x, player.y);
-
-            if (pathfindingSolution.length > 0) {
-                startAutoPlay();
+        
+        function addWalls(r, c, walls) {
+            if (r > 0 && !maze[r - 1][c].visited) walls.push([r, c, 'top']);
+            if (c < currentMazeCols - 1 && !maze[r][c + 1].visited) walls.push([r, c, 'right']);
+            if (r < currentMazeRows - 1 && !maze[r + 1][c].visited) walls.push([r, c, 'bottom']);
+            if (c > 0 && !maze[r][c - 1].visited) walls.push([r, c, 'left']);
+        }
+        
+        function generateMazeRecursiveDivision(x, y, width, height) {
+            if (width < 2 || height < 2) {
+                return;
+            }
+            const horizontalSplit = height > width || (height === width && Math.random() < 0.5);
+            if (horizontalSplit) {
+                const wallY = y + Math.floor(Math.random() * (height - 1));
+                const passageX = x + Math.floor(Math.random() * width);
+                for (let i = x; i < x + width; i++) {
+                    if (i !== passageX) {
+                        maze[wallY][i].bottom = true;
+                        if (wallY + 1 < currentMazeRows) maze[wallY + 1][i].top = true;
+                    }
+                }
+                generateMazeRecursiveDivision(x, y, width, wallY - y + 1);
+                generateMazeRecursiveDivision(x, wallY + 1, width, y + height - (wallY + 1));
             } else {
-                messageDiv.textContent = "オートプレイ: ゴールへの道が見つかりませんでした。";
+                const wallX = x + Math.floor(Math.random() * (width - 1));
+                const passageY = y + Math.floor(Math.random() * height);
+                for (let i = y; i < y + height; i++) {
+                    if (i !== passageY) {
+                        maze[i][wallX].right = true;
+                        if (wallX + 1 < currentMazeCols) maze[i][wallX + 1].left = true;
+                    }
+                }
+                generateMazeRecursiveDivision(x, y, wallX - x + 1, height);
+                generateMazeRecursiveDivision(wallX + 1, y, x + width - (wallX + 1), height);
+            }
+        }
+        
+        function shuffle(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+            return array;
+        }
+        
+        function renderGame(redFilterAlpha = 0) {
+            drawPseudo3D(redFilterAlpha);
+            draw2D();
+            if (player.x === goal.x && player.y === goal.y) {
+                messageDiv.textContent = "Clear!";
+                retryButton.style.display = 'block';
+                giveUpButton.style.display = 'none';
+                autoPlayButton.style.display = 'none';
+                soundButton.style.display = 'none';
                 isAutoPlaying = false;
-                autoPlayButton.textContent = "オートプレイ";
-                document.addEventListener('keydown', handleKeyPress);
+                isBeingDragged = false;
+                isScreenDimmed = false;
+                clearInterval(autoPlayInterval);
+                clearInterval(redFilterInterval);
+                clearInterval(draggingMobMoveInterval);
+                clearTimeout(mobMovementTimeout);
+                clearTimeout(postDragDimTimeout);
+                document.removeEventListener('keydown', handleKeyPress);
+                bgm.pause();
+                if (isSoundOn) clearSound.play();
             }
-        } else {
-            autoPlayButton.textContent = "オートプレイ";
-            document.addEventListener('keydown', handleKeyPress);
-            clearInterval(autoPlayInterval);
-            autoPlayInterval = null;
         }
-    }
-
-    function startAutoPlay() {
-        let pathIndex = 1;
-        clearInterval(autoPlayInterval);
-        autoPlayInterval = null;
-
-        if (!pathfindingSolution || pathfindingSolution.length <= 1) {
-            messageDiv.textContent = "オートプレイ: ゴールへの道が見つかりませんでした。";
-            isAutoPlaying = false;
-            autoPlayButton.textContent = "オートプレイ";
-            document.addEventListener('keydown', handleKeyPress);
-            return;
-        }
-
-        const autoPlaySpeed = parseInt(autoPlaySpeedSelect.value, 10);
-
-        autoPlayInterval = setInterval(() => {
-            if (pathIndex < pathfindingSolution.length) {
-                const nextMove = pathfindingSolution[pathIndex];
-                const prevMove = pathfindingSolution[pathIndex - 1];
-
-                if (!nextMove || !prevMove) {
-                    clearInterval(autoPlayInterval);
-                    autoPlayInterval = null;
-                    messageDiv.textContent = "オートプレイ中にエラーが発生しました。";
-                    isAutoPlaying = false;
-                    autoPlayButton.textContent = "オートプレイ";
-                    document.addEventListener('keydown', handleKeyPress);
+        
+        function handleKeyPress(e) {
+            if (player.x === goal.x && player.y === goal.y || isAutoPlaying || isBeingDragged) {
+                return;
+            }
+            if (player.y >= currentMazeRows || player.y < 0 || player.x >= currentMazeCols || player.x < 0) {
+                return;
+            }
+            const currentCell = maze[player.y][player.x];
+            let newX = player.x;
+            let newY = player.y;
+            let moved = false;
+            switch (e.key) {
+                case 'ArrowUp':
+                    if (player.direction === 0 && !currentCell.top) newY--;
+                    else if (player.direction === 1 && !currentCell.right) newX++;
+                    else if (player.direction === 2 && !currentCell.bottom) newY++;
+                    else if (player.direction === 3 && !currentCell.left) newX--;
+                    break;
+                case 'ArrowDown':
+                    let backX = player.x;
+                    let backY = player.y;
+                    let backCell = null;
+                    if (player.direction === 0) {
+                        if (backY < currentMazeRows - 1) backCell = maze[backY + 1][backX];
+                        if (backCell && !backCell.top) backY++;
+                    } else if (player.direction === 1) {
+                        if (backX > 0) backCell = maze[backY][backX - 1];
+                        if (backCell && !backCell.right) backX--;
+                    } else if (player.direction === 2) {
+                        if (backY > 0) backCell = maze[backY - 1][backX];
+                        if (backCell && !backCell.bottom) backY--;
+                    } else if (player.direction === 3) {
+                        if (backX < currentMazeCols - 1) backCell = maze[backY][backX + 1];
+                        if (backCell && !backCell.left) backX++;
+                    }
+                    newX = backX;
+                    newY = backY;
+                    break;
+                case 'ArrowLeft':
+                    player.direction = (player.direction - 1 + 4) % 4;
+                    renderGame();
                     return;
-                }
-
-                if (nextMove.x > prevMove.x) {
-                    player.direction = 1;
-                } else if (nextMove.x < prevMove.x) {
-                    player.direction = 3;
-                } else if (nextMove.y > prevMove.y) {
-                    player.direction = 2;
-                } else if (nextMove.y < prevMove.y) {
-                    player.direction = 0;
-                }
-
-                player.x = nextMove.x;
-                player.y = nextMove.y;
-
+                case 'ArrowRight':
+                    player.direction = (player.direction + 1) % 4;
+                    renderGame();
+                    return;
+            }
+            if (newX !== player.x || newY !== player.y) {
+                moved = true;
+                player.x = newX;
+                player.y = newY;
+            }
+            if (moved) {
                 if (!visitedPath.some(p => p.x === player.x && p.y === player.y)) {
                     visitedPath.push({ x: player.x, y: player.y });
                 }
                 
-                // オートプレイ中もモブとの衝突判定を行う
-                const caughtMob = mobs.find(mob => mob.x === player.x && mob.y === player.y);
-                if (mobsAreEnabled && caughtMob && !isBeingDragged) {
-                    startDimEffect(caughtMob);
-                    return; // 衝突したらオートプレイを一時停止
+                stepsTaken++;
+                if (stepsTaken % 3 === 0 && isSoundOn) {
+                    footstepSound.currentTime = 0;
+                    footstepSound.play();
                 }
-
-                renderGame();
-
-                if (player.x === goal.x && player.y === goal.y) {
-                    clearInterval(autoPlayInterval);
-                    autoPlayInterval = null;
-                    messageDiv.textContent = "オートプレイ完了！";
+                
+                const caughtMobIndex = mobs.findIndex(mob => mob.x === player.x && mob.y === player.y);
+                if (mobsAreEnabled && caughtMobIndex > -1) {
+                    startCaughtEffect(caughtMobIndex);
+                }
+            }
+            renderGame();
+        }
+        
+        function startGame() {
+            clearInterval(autoPlayInterval);
+            clearInterval(redFilterInterval);
+            clearInterval(draggingMobMoveInterval);
+            clearTimeout(mobMovementTimeout);
+            clearTimeout(postDragDimTimeout);
+            isAutoPlaying = false;
+            isBeingDragged = false;
+            isScreenDimmed = false;
+            autoPlayButton.textContent = "オートプレイ";
+            canvas3D.width = 800;
+            canvas3D.height = 600;
+            canvas2D.width = 300;
+            canvas2D.height = 600;
+            start = { x: 0, y: 0 };
+            goal = { x: currentMazeCols - 1, y: currentMazeRows - 1 };
+            const selectedAlgorithm = mazeAlgorithmSelect.value;
+            if (selectedAlgorithm === 'recursiveDivision') {
+                initializeMaze(currentMazeRows, currentMazeCols, false);
+                generateMazeRecursiveDivision(0, 0, currentMazeCols, currentMazeRows);
+                for (let c = 0; c < currentMazeCols; c++) {
+                    maze[0][c].top = true;
+                    maze[currentMazeRows - 1][c].bottom = true;
+                }
+                for (let r = 0; r < currentMazeRows; r++) {
+                    maze[r][0].left = true;
+                    maze[r][currentMazeCols - 1].right = true;
+                }
+            } else {
+                initializeMaze(currentMazeRows, currentMazeCols, true);
+                if (selectedAlgorithm === 'prim') {
+                    generateMazePrim(0, 0);
+                } else {
+                    generateMazeDFS(0, 0);
+                }
+            }
+            initMobs();
+            player.x = start.x;
+            player.y = start.y;
+            player.direction = 1;
+            visitedPath = [];
+            visitedPath.push({ x: player.x, y: player.y });
+            document.removeEventListener('keydown', handleKeyPress);
+            document.addEventListener('keydown', handleKeyPress);
+            messageDiv.textContent = "";
+            retryButton.style.display = 'none';
+            giveUpButton.style.display = 'inline-block';
+            autoPlayButton.style.display = 'inline-block';
+            soundButton.style.display = 'inline-block';
+            if (mobsAreEnabled) {
+                startMobMovementLoop();
+            }
+            stepsTaken = 0;
+            if(isSoundOn) bgm.play();
+            renderGame();
+        }
+        
+        function toggleAutoPlay() {
+            if (isBeingDragged) return;
+            isAutoPlaying = !isAutoPlaying;
+            if (isAutoPlaying) {
+                autoPlayButton.textContent = "手動プレイに戻る";
+                document.removeEventListener('keydown', handleKeyPress);
+                pathfindingSolution = [];
+                findPathForAutoPlay(player.x, player.y);
+                if (pathfindingSolution.length > 0) {
+                    startAutoPlay();
+                } else {
+                    messageDiv.textContent = "オートプレイ: ゴールへの道が見つかりませんでした。";
                     isAutoPlaying = false;
                     autoPlayButton.textContent = "オートプレイ";
                     document.addEventListener('keydown', handleKeyPress);
                 }
-                pathIndex++;
             } else {
+                autoPlayButton.textContent = "オートプレイ";
+                document.addEventListener('keydown', handleKeyPress);
                 clearInterval(autoPlayInterval);
                 autoPlayInterval = null;
+            }
+        }
+        
+        function startAutoPlay() {
+            let pathIndex = 1;
+            clearInterval(autoPlayInterval);
+            autoPlayInterval = null;
+            if (!pathfindingSolution || pathfindingSolution.length <= 1) {
+                messageDiv.textContent = "オートプレイ: ゴールへの道が見つかりませんでした。";
                 isAutoPlaying = false;
                 autoPlayButton.textContent = "オートプレイ";
                 document.addEventListener('keydown', handleKeyPress);
-            }
-        }, autoPlaySpeed);
-    }
-
-    function findPathForAutoPlay(startX, startY) {
-        if (!maze || maze.length === 0 || startX < 0 || startX >= currentMazeCols || startY < 0 || startY >= currentMazeRows) {
-            pathfindingSolution = [];
-            return;
-        }
-
-        const queue = [];
-        const visitedAutoPlay = Array(currentMazeRows).fill(null).map(() => Array(currentMazeCols).fill(false));
-
-        queue.push({ x: startX, y: startY, path: [{ x: startX, y: startY }] });
-        visitedAutoPlay[startY][startX] = true;
-
-        while (queue.length > 0) {
-            const { x, y, path } = queue.shift();
-
-            if (y < 0 || y >= currentMazeRows || x < 0 || x >= currentMazeCols) {
-                continue;
-            }
-
-            if (x === goal.x && y === goal.y) {
-                pathfindingSolution = path;
                 return;
             }
-
-            const currentCell = maze[y][x];
-
-            if (y > 0 && !currentCell.top) {
-                const ny = y - 1;
-                const nx = x;
-                if (ny >= 0 && ny < currentMazeRows && !visitedAutoPlay[ny][nx]) {
-                    visitedAutoPlay[ny][nx] = true;
-                    const newPath = [...path, { x: nx, y: ny }];
-                    queue.push({ x: nx, y: ny, path: newPath });
+            const autoPlaySpeed = parseInt(autoPlaySpeedSelect.value, 10);
+            autoPlayInterval = setInterval(() => {
+                if (pathIndex < pathfindingSolution.length) {
+                    const nextMove = pathfindingSolution[pathIndex];
+                    const prevMove = pathfindingSolution[pathIndex - 1];
+                    if (!nextMove || !prevMove) {
+                        clearInterval(autoPlayInterval);
+                        autoPlayInterval = null;
+                        messageDiv.textContent = "オートプレイ中にエラーが発生しました。";
+                        isAutoPlaying = false;
+                        autoPlayButton.textContent = "オートプレイ";
+                        document.addEventListener('keydown', handleKeyPress);
+                        return;
+                    }
+                    if (nextMove.x > prevMove.x) {
+                        player.direction = 1;
+                    } else if (nextMove.x < prevMove.x) {
+                        player.direction = 3;
+                    } else if (nextMove.y > prevMove.y) {
+                        player.direction = 2;
+                    } else if (nextMove.y < prevMove.y) {
+                        player.direction = 0;
+                    }
+                    player.x = nextMove.x;
+                    player.y = nextMove.y;
+                    if (!visitedPath.some(p => p.x === player.x && p.y === player.y)) {
+                        visitedPath.push({ x: player.x, y: player.y });
+                    }
+                    
+                    stepsTaken++;
+                    if (stepsTaken % 3 === 0 && isSoundOn) {
+                        footstepSound.currentTime = 0;
+                        footstepSound.play();
+                    }
+                    
+                    const caughtMobIndex = mobs.findIndex(mob => mob.x === player.x && mob.y === player.y);
+                    if (mobsAreEnabled && caughtMobIndex > -1) {
+                        startCaughtEffect(caughtMobIndex);
+                        return;
+                    }
+                    renderGame();
+                    if (player.x === goal.x && player.y === goal.y) {
+                        clearInterval(autoPlayInterval);
+                        autoPlayInterval = null;
+                        messageDiv.textContent = "オートプレイ完了！";
+                        isAutoPlaying = false;
+                        autoPlayButton.textContent = "オートプレイ";
+                        document.addEventListener('keydown', handleKeyPress);
+                    }
+                    pathIndex++;
+                } else {
+                    clearInterval(autoPlayInterval);
+                    autoPlayInterval = null;
+                    isAutoPlaying = false;
+                    autoPlayButton.textContent = "オートプレイ";
+                    document.addEventListener('keydown', handleKeyPress);
                 }
+            }, autoPlaySpeed);
+        }
+        
+        function findPathForAutoPlay(startX, startY) {
+            if (!maze || maze.length === 0 || startX < 0 || startX >= currentMazeCols || startY < 0 || startY >= currentMazeRows) {
+                pathfindingSolution = [];
+                return;
             }
-            if (y < currentMazeRows - 1 && !currentCell.bottom) {
-                const ny = y + 1;
-                const nx = x;
-                if (ny >= 0 && ny < currentMazeRows && !visitedAutoPlay[ny][nx]) {
-                    visitedAutoPlay[ny][nx] = true;
-                    const newPath = [...path, { x: nx, y: ny }];
-                    queue.push({ x: nx, y: ny, path: newPath });
+            const queue = [];
+            const visitedAutoPlay = Array(currentMazeRows).fill(null).map(() => Array(currentMazeCols).fill(false));
+            queue.push({ x: startX, y: startY, path: [{ x: startX, y: startY }] });
+            visitedAutoPlay[startY][startX] = true;
+            while (queue.length > 0) {
+                const { x, y, path } = queue.shift();
+                if (y < 0 || y >= currentMazeRows || x < 0 || x >= currentMazeCols) {
+                    continue;
                 }
-            }
-            if (x > 0 && !currentCell.left) {
-                const ny = y;
-                const nx = x - 1;
-                if (nx >= 0 && nx < currentMazeCols && !visitedAutoPlay[ny][nx]) {
-                    visitedAutoPlay[ny][nx] = true;
-                    const newPath = [...path, { x: nx, y: ny }];
-                    queue.push({ x: nx, y: ny, path: newPath });
+                if (x === goal.x && y === goal.y) {
+                    pathfindingSolution = path;
+                    return;
                 }
-            }
-            if (x < currentMazeCols - 1 && !currentCell.right) {
-                const ny = y;
-                const nx = x + 1;
-                if (nx >= 0 && nx < currentMazeCols && !visitedAutoPlay[ny][nx]) {
-                    visitedAutoPlay[ny][nx] = true;
-                    const newPath = [...path, { x: nx, y: ny }];
-                    queue.push({ x: nx, y: ny, path: newPath });
+                const currentCell = maze[y][x];
+                if (y > 0 && !currentCell.top) {
+                    const ny = y - 1;
+                    const nx = x;
+                    if (ny >= 0 && ny < currentMazeRows && !visitedAutoPlay[ny][nx]) {
+                        visitedAutoPlay[ny][nx] = true;
+                        const newPath = [...path, { x: nx, y: ny }];
+                        queue.push({ x: nx, y: ny, path: newPath });
+                    }
+                }
+                if (y < currentMazeRows - 1 && !currentCell.bottom) {
+                    const ny = y + 1;
+                    const nx = x;
+                    if (ny >= 0 && ny < currentMazeRows && !visitedAutoPlay[ny][nx]) {
+                        visitedAutoPlay[ny][nx] = true;
+                        const newPath = [...path, { x: nx, y: ny }];
+                        queue.push({ x: nx, y: ny, path: newPath });
+                    }
+                }
+                if (x > 0 && !currentCell.left) {
+                    const ny = y;
+                    const nx = x - 1;
+                    if (nx >= 0 && nx < currentMazeCols && !visitedAutoPlay[ny][nx]) {
+                        visitedAutoPlay[ny][nx] = true;
+                        const newPath = [...path, { x: nx, y: ny }];
+                        queue.push({ x: nx, y: ny, path: newPath });
+                    }
+                }
+                if (x < currentMazeCols - 1 && !currentCell.right) {
+                    const ny = y;
+                    const nx = x + 1;
+                    if (nx >= 0 && nx < currentMazeCols && !visitedAutoPlay[ny][nx]) {
+                        visitedAutoPlay[ny][nx] = true;
+                        const newPath = [...path, { x: nx, y: ny }];
+                        queue.push({ x: nx, y: ny, path: newPath });
+                    }
                 }
             }
         }
-        pathfindingSolution = [];
-    }
     </script>
 </body>
 </html>
