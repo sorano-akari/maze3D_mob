@@ -992,7 +992,7 @@
             }
         }
         
-        function handleKeyPress(e) {
+function handleKeyPress(e) {
             if (player.x === goal.x && player.y === goal.y || isAutoPlaying || isBeingDragged) {
                 return;
             }
@@ -1049,8 +1049,7 @@
                     visitedPath.push({ x: player.x, y: player.y });
                 }
                 
-                stepsTaken++;
-                if (stepsTaken % 3 === 0 && isSoundOn) {
+                if (isSoundOn) {
                     footstepSound.currentTime = 0;
                     footstepSound.play();
                 }
