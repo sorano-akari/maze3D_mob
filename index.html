@@ -116,7 +116,8 @@
     </style>
 </head>
 <body>
-    <img id="mobImage" src="./mob.png" style="display:none;">
+    <img id="mobImage1" src="./mob1.png" style="display:none;">
+    <img id="mobImage2" src="./mob2.png" style="display:none;">
     <img id="goalImage" src="./goal.png" style="display:none;">
     
     <audio id="bgm" src="./bgm.mp3" loop muted></audio>
@@ -218,17 +219,19 @@
         let pathfindingSolution = [];
         
         let mobs = []; 
-        const mobImage = document.getElementById('mobImage');
+        const mobImage1 = document.getElementById('mobImage1');
+        const mobImage2 = document.getElementById('mobImage2');
+        let mobCounter = 0; // 新しいカウンターを追加
         
         let isScreenDimmed = false;
         let redFilterInterval = null;
         let postDragDimTimeout = null;
-        let blinkingInterval = null; // 明滅効果用のIntervalを追加
-        let clearMessageTimeout = null; // メッセージ消去用のTimeoutを追加
+        let blinkingInterval = null;
+        let clearMessageTimeout = null;
         
-        const dragDuration = 3000; // 引きずり時間
-        const postDragDimDuration = 15000; // 引きずり後の暗転時間
-        const reAddMobDelay = 3000; // モブ消滅から再配置までの時間
+        const dragDuration = 3000;
+        const postDragDimDuration = 15000;
+        const reAddMobDelay = 3000;
 
         let isBeingDragged = false;
         let draggingMob = null;
@@ -348,11 +351,13 @@
             } while (!foundSpot && attempts < maxAttempts);
             if (foundSpot) {
                 const randomHue = Math.floor(Math.random() * 360);
+                const selectedImage = (mobCounter % 2 === 0) ? mobImage1 : mobImage2;
+                mobCounter++;
                 return {
                     x: x,
                     y: y,
                     direction: 0, 
-                    image: mobImage,
+                    image: selectedImage,
                     filter: `hue-rotate(${randomHue}deg)`
                 };
             }
@@ -480,7 +485,6 @@
                 moveDraggingMob();
             }, 100);
 
-            // 引きずり効果の終了 (3秒後)
             setTimeout(() => {
                 clearInterval(redFilterInterval);
                 clearInterval(draggingMobMoveInterval);
@@ -489,17 +493,14 @@
                 draggingMob = null;
                 isBeingDragged = false;
                 
-                messageDiv.textContent = "モブに視界を奪われている"; // 暗転中のメッセージに変更
+                messageDiv.textContent = "モブに視界を奪われている";
                 
-                // 引きずり後の暗転効果開始
                 isScreenDimmed = true;
                 
-                // モブ再配置 (3秒後)
                 setTimeout(() => {
                     reAddMobAfterDelay();
                 }, reAddMobDelay);
 
-                // 暗転効果の終了の2秒前から明滅を開始
                 setTimeout(() => {
                     blinkingInterval = setInterval(() => {
                         isScreenDimmed = !isScreenDimmed;
@@ -507,14 +508,12 @@
                     }, 200);
                 }, postDragDimDuration - 2000);
 
-                // 暗転効果の終了 (15秒後)
                 postDragDimTimeout = setTimeout(() => {
                     clearInterval(blinkingInterval);
                     isScreenDimmed = false;
                     messageDiv.textContent = "視界回復";
                     renderGame();
 
-                    // 3秒後にメッセージを消去
                     clearTimeout(clearMessageTimeout);
                     clearMessageTimeout = setTimeout(() => {
                         messageDiv.textContent = "";
@@ -537,7 +536,7 @@
                             document.addEventListener('keydown', handleKeyPress);
                         }
 
-                    }, 3000); // 3秒後にメッセージを消す
+                    }, 3000);
                 }, postDragDimDuration);
 
             }, dragDuration);
@@ -586,7 +585,7 @@
             if (player.x === goal.x && player.y === goal.y || !mobsAreEnabled) {
                 return;
             }
-            const mobSpeed = 500; 
+            const mobSpeed = 500;
             mobMovementTimeout = setTimeout(() => {
                 moveMobs();
                 startMobMovementLoop();
@@ -603,8 +602,7 @@
             const playerHeight = 0.5;
             const sideLimit = 5;
 
-            // 視界制限のしきい値
-            const darknessThreshold = 3; 
+            const darknessThreshold = 3;
 
             ctx3D.clearRect(0, 0, viewWidth, viewHeight);
             ctx3D.strokeStyle = 'black';
@@ -626,18 +624,14 @@
             for (let d = viewDistance; d >= 0; d--) {
                 let baseBrightness;
 
-                // 捕獲中と捕獲後で同じ暗転効果を適用
                 if (isBeingDragged || isScreenDimmed) {
-                    // dがしきい値(3)より大きい場合は完全に真っ暗にする
                     if (d > darknessThreshold) {
                         baseBrightness = 0;
                     } else {
-                        // しきい値内のセルは徐々に暗くする
                         baseBrightness = 15 - (d * 20);
                         baseBrightness = Math.max(0, baseBrightness);
                     }
                 } else {
-                    // 通常時
                     baseBrightness = 30 - (d * 10);
                     baseBrightness = Math.max(15, baseBrightness);
                 }
@@ -649,7 +643,6 @@
                 const y_top_d_plus_1 = horizonY - perspective_d_plus_1 * playerHeight;
                 const y_bottom_d_plus_1 = horizonY + perspective_d_plus_1 * (1 - playerHeight);
 
-                // 視界制限を超える場合は描画しない
                 if ((isBeingDragged || isScreenDimmed) && d > darknessThreshold) {
                     const isGoal = (player.direction === 0 && player.x === goal.x && player.y - d === goal.y) ||
                                    (player.direction === 1 && player.x + d === goal.x && player.y === goal.y) ||
@@ -660,7 +653,6 @@
                     }
                 }
                 
-                // d > darknessThreshold の場合は背景も真っ暗にする
                 if (baseBrightness > 0) {
                     const ceilingGradient = ctx3D.createLinearGradient(0, y_top_d, 0, y_top_d_plus_1);
                     ceilingGradient.addColorStop(0, `hsl(210, 20%, ${baseBrightness + 5}%)`);
@@ -674,7 +666,6 @@
                     ctx3D.fillStyle = floorGradient;
                     ctx3D.fillRect(0, y_bottom_d_plus_1, viewWidth, y_bottom_d - y_bottom_d_plus_1);
                 } else {
-                    // 真っ暗な場合は黒で塗りつぶす
                     ctx3D.fillStyle = '#000';
                     ctx3D.fillRect(0, y_top_d_plus_1, viewWidth, y_bottom_d - y_top_d_plus_1);
                 }
@@ -695,7 +686,6 @@
                     const isGoal = (cellX === goal.x && cellY === goal.y);
                     const mob = mobs.find(m => m.x === cellX && m.y === cellY);
 
-                    // 視界制限を超える場合は描画しない
                     if ((isBeingDragged || isScreenDimmed) && d > darknessThreshold && !isGoal) {
                         continue;
                     }
