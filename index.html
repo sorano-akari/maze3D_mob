@@ -223,6 +223,8 @@
         let isScreenDimmed = false;
         let redFilterInterval = null;
         let postDragDimTimeout = null;
+        let blinkingInterval = null; // 明滅効果用のIntervalを追加
+        let clearMessageTimeout = null; // メッセージ消去用のTimeoutを追加
         
         const dragDuration = 3000; // 引きずり時間
         const postDragDimDuration = 15000; // 引きずり後の暗転時間
@@ -274,8 +276,10 @@
                 clearInterval(autoPlayInterval);
                 clearInterval(redFilterInterval);
                 clearInterval(draggingMobMoveInterval);
+                clearInterval(blinkingInterval);
                 clearTimeout(mobMovementTimeout);
                 clearTimeout(postDragDimTimeout);
+                clearTimeout(clearMessageTimeout);
                 document.removeEventListener('keydown', handleKeyPress);
                 bgm.pause();
                 bgm.currentTime = 0;
@@ -299,8 +303,10 @@
                     clearInterval(autoPlayInterval);
                     clearInterval(redFilterInterval);
                     clearInterval(draggingMobMoveInterval);
+                    clearInterval(blinkingInterval);
                     clearTimeout(mobMovementTimeout);
                     clearTimeout(postDragDimTimeout);
+                    clearTimeout(clearMessageTimeout);
                     document.removeEventListener('keydown', handleKeyPress);
                     bgm.pause();
                     bgm.currentTime = 0;
@@ -482,7 +488,8 @@
                 draggingMobMoveInterval = null;
                 draggingMob = null;
                 isBeingDragged = false;
-                messageDiv.textContent = "引きずられ終了。行動可能。";
+                
+                messageDiv.textContent = "モブに視界を奪われている"; // 暗転中のメッセージに変更
                 
                 // 引きずり後の暗転効果開始
                 isScreenDimmed = true;
@@ -490,34 +497,49 @@
                 // モブ再配置 (3秒後)
                 setTimeout(() => {
                     reAddMobAfterDelay();
-                    if (wasAutoPlaying) {
-                        isAutoPlaying = true;
-                        autoPlayButton.textContent = "手動プレイに戻る";
-                        document.removeEventListener('keydown', handleKeyPress);
-                        pathfindingSolution = [];
-                        findPathForAutoPlay(player.x, player.y);
-                        if (pathfindingSolution.length > 0) {
-                            startAutoPlay();
-                        } else {
-                            isAutoPlaying = false;
-                            autoPlayButton.textContent = "オートプレイ";
-                            document.addEventListener('keydown', handleKeyPress);
-                            messageDiv.textContent = "オートプレイ: ゴールへの道が見つかりませんでした。";
-                        }
-                    } else {
-                        document.addEventListener('keydown', handleKeyPress);
-                    }
                 }, reAddMobDelay);
 
+                // 暗転効果の終了の2秒前から明滅を開始
+                setTimeout(() => {
+                    blinkingInterval = setInterval(() => {
+                        isScreenDimmed = !isScreenDimmed;
+                        renderGame();
+                    }, 200);
+                }, postDragDimDuration - 2000);
+
                 // 暗転効果の終了 (15秒後)
-                clearTimeout(postDragDimTimeout);
                 postDragDimTimeout = setTimeout(() => {
+                    clearInterval(blinkingInterval);
                     isScreenDimmed = false;
-                    messageDiv.textContent = "";
+                    messageDiv.textContent = "視界回復";
                     renderGame();
+
+                    // 3秒後にメッセージを消去
+                    clearTimeout(clearMessageTimeout);
+                    clearMessageTimeout = setTimeout(() => {
+                        messageDiv.textContent = "";
+
+                        if (wasAutoPlaying) {
+                            isAutoPlaying = true;
+                            autoPlayButton.textContent = "手動プレイに戻る";
+                            document.removeEventListener('keydown', handleKeyPress);
+                            pathfindingSolution = [];
+                            findPathForAutoPlay(player.x, player.y);
+                            if (pathfindingSolution.length > 0) {
+                                startAutoPlay();
+                            } else {
+                                isAutoPlaying = false;
+                                autoPlayButton.textContent = "オートプレイ";
+                                document.addEventListener('keydown', handleKeyPress);
+                                messageDiv.textContent = "オートプレイ: ゴールへの道が見つかりませんでした。";
+                            }
+                        } else {
+                            document.addEventListener('keydown', handleKeyPress);
+                        }
+
+                    }, 3000); // 3秒後にメッセージを消す
                 }, postDragDimDuration);
-                
-                renderGame();
+
             }, dragDuration);
         }
         
@@ -571,6 +593,7 @@
             }, mobSpeed);
         }
         
+
         function drawPseudo3D(redFilterAlpha = 0) {
             const viewDistance = 10;
             const viewWidth = canvas3D.width;
@@ -579,9 +602,14 @@
             const halfWidth = viewWidth / 2;
             const playerHeight = 0.5;
             const sideLimit = 5;
+
+            // 視界制限のしきい値
+            const darknessThreshold = 3; 
+
             ctx3D.clearRect(0, 0, viewWidth, viewHeight);
             ctx3D.strokeStyle = 'black';
             ctx3D.lineWidth = 2;
+
             const checkWall = (x, y, wallType) => {
                 if (x >= 0 && x < currentMazeCols && y >= 0 && y < currentMazeRows) {
                     const cell = maze[y][x];
@@ -594,31 +622,63 @@
                 }
                 return true;
             };
+
             for (let d = viewDistance; d >= 0; d--) {
                 let baseBrightness;
-                if (isScreenDimmed || isBeingDragged) {
-                    baseBrightness = 30 - (d * 20);
-                    if (baseBrightness < 5) baseBrightness = 5;
+
+                // 捕獲中と捕獲後で同じ暗転効果を適用
+                if (isBeingDragged || isScreenDimmed) {
+                    // dがしきい値(3)より大きい場合は完全に真っ暗にする
+                    if (d > darknessThreshold) {
+                        baseBrightness = 0;
+                    } else {
+                        // しきい値内のセルは徐々に暗くする
+                        baseBrightness = 15 - (d * 20);
+                        baseBrightness = Math.max(0, baseBrightness);
+                    }
                 } else {
+                    // 通常時
                     baseBrightness = 30 - (d * 10);
-                    if (baseBrightness < 15) baseBrightness = 15;
+                    baseBrightness = Math.max(15, baseBrightness);
                 }
+                
                 const perspective_d = viewWidth / (d + 1);
                 const y_top_d = horizonY - perspective_d * playerHeight;
                 const y_bottom_d = horizonY + perspective_d * (1 - playerHeight);
                 const perspective_d_plus_1 = viewWidth / (d + 2);
                 const y_top_d_plus_1 = horizonY - perspective_d_plus_1 * playerHeight;
                 const y_bottom_d_plus_1 = horizonY + perspective_d_plus_1 * (1 - playerHeight);
-                const ceilingGradient = ctx3D.createLinearGradient(0, y_top_d, 0, y_top_d_plus_1);
-                ceilingGradient.addColorStop(0, `hsl(210, 20%, ${baseBrightness + 5}%)`);
-                ceilingGradient.addColorStop(1, `hsl(210, 20%, ${baseBrightness}%)`);
-                ctx3D.fillStyle = ceilingGradient;
-                ctx3D.fillRect(0, y_top_d_plus_1, viewWidth, y_top_d - y_top_d_plus_1);
-                const floorGradient = ctx3D.createLinearGradient(0, y_bottom_d, 0, y_bottom_d_plus_1);
-                floorGradient.addColorStop(0, `hsl(210, 20%, ${baseBrightness + 5}%)`);
-                floorGradient.addColorStop(1, `hsl(210, 20%, ${baseBrightness}%)`);
-                ctx3D.fillStyle = floorGradient;
-                ctx3D.fillRect(0, y_bottom_d_plus_1, viewWidth, y_bottom_d - y_bottom_d_plus_1);
+
+                // 視界制限を超える場合は描画しない
+                if ((isBeingDragged || isScreenDimmed) && d > darknessThreshold) {
+                    const isGoal = (player.direction === 0 && player.x === goal.x && player.y - d === goal.y) ||
+                                   (player.direction === 1 && player.x + d === goal.x && player.y === goal.y) ||
+                                   (player.direction === 2 && player.x === goal.x && player.y + d === goal.y) ||
+                                   (player.direction === 3 && player.x - d === goal.x && player.y === goal.y);
+                    if (!isGoal) {
+                         continue;
+                    }
+                }
+                
+                // d > darknessThreshold の場合は背景も真っ暗にする
+                if (baseBrightness > 0) {
+                    const ceilingGradient = ctx3D.createLinearGradient(0, y_top_d, 0, y_top_d_plus_1);
+                    ceilingGradient.addColorStop(0, `hsl(210, 20%, ${baseBrightness + 5}%)`);
+                    ceilingGradient.addColorStop(1, `hsl(210, 20%, ${baseBrightness}%)`);
+                    ctx3D.fillStyle = ceilingGradient;
+                    ctx3D.fillRect(0, y_top_d_plus_1, viewWidth, y_top_d - y_top_d_plus_1);
+
+                    const floorGradient = ctx3D.createLinearGradient(0, y_bottom_d, 0, y_bottom_d_plus_1);
+                    floorGradient.addColorStop(0, `hsl(210, 20%, ${baseBrightness + 5}%)`);
+                    floorGradient.addColorStop(1, `hsl(210, 20%, ${baseBrightness}%)`);
+                    ctx3D.fillStyle = floorGradient;
+                    ctx3D.fillRect(0, y_bottom_d_plus_1, viewWidth, y_bottom_d - y_bottom_d_plus_1);
+                } else {
+                    // 真っ暗な場合は黒で塗りつぶす
+                    ctx3D.fillStyle = '#000';
+                    ctx3D.fillRect(0, y_top_d_plus_1, viewWidth, y_bottom_d - y_top_d_plus_1);
+                }
+                
                 for (let s = sideLimit; s >= -sideLimit; s--) {
                     const px = player.x;
                     const py = player.y;
@@ -634,11 +694,18 @@
                     const isOutOfBounds = cellX < 0 || cellX >= currentMazeCols || cellY < 0 || cellY >= currentMazeRows;
                     const isGoal = (cellX === goal.x && cellY === goal.y);
                     const mob = mobs.find(m => m.x === cellX && m.y === cellY);
+
+                    // 視界制限を超える場合は描画しない
+                    if ((isBeingDragged || isScreenDimmed) && d > darknessThreshold && !isGoal) {
+                        continue;
+                    }
+                    
                     let wallInfo = {
                         front: false,
                         left: false,
                         right: false
                     };
+                    
                     if (isOutOfBounds) {
                         wallInfo.front = true;
                         wallInfo.left = true;
@@ -686,10 +753,12 @@
                             ctx3D.restore();
                         }
                     }
+                    
                     const gradFront = ctx3D.createLinearGradient(0, y_top_d_plus_1, 0, y_bottom_d_plus_1);
                     gradFront.addColorStop(0, `hsl(210, 10%, ${Math.max(3, baseBrightness)}%)`);
                     gradFront.addColorStop(1, `hsl(210, 10%, ${Math.max(3, baseBrightness + 20)}%)`);
                     ctx3D.fillStyle = gradFront;
+                    
                     if (wallInfo.front) {
                         ctx3D.beginPath();
                         ctx3D.moveTo(x_d_plus_1(-0.5 + s), y_top_d_plus_1);
@@ -730,6 +799,7 @@
                     }
                 }
             }
+            
             if (isBeingDragged && draggingMob) {
                 ctx3D.save();
                 ctx3D.filter = draggingMob.filter;
@@ -744,7 +814,7 @@
                 ctx3D.fillRect(0, 0, viewWidth, viewHeight);
             }
         }
-        
+
         function draw2D() {
             const canvasWidth = canvas2D.clientWidth;
             const canvasHeight = canvas2D.clientHeight;
@@ -984,8 +1054,10 @@
                 clearInterval(autoPlayInterval);
                 clearInterval(redFilterInterval);
                 clearInterval(draggingMobMoveInterval);
+                clearInterval(blinkingInterval);
                 clearTimeout(mobMovementTimeout);
                 clearTimeout(postDragDimTimeout);
+                clearTimeout(clearMessageTimeout);
                 document.removeEventListener('keydown', handleKeyPress);
                 bgm.pause();
                 if (isSoundOn) clearSound.play();
@@ -1066,8 +1138,10 @@ function handleKeyPress(e) {
             clearInterval(autoPlayInterval);
             clearInterval(redFilterInterval);
             clearInterval(draggingMobMoveInterval);
+            clearInterval(blinkingInterval);
             clearTimeout(mobMovementTimeout);
             clearTimeout(postDragDimTimeout);
+            clearTimeout(clearMessageTimeout);
             isAutoPlaying = false;
             isBeingDragged = false;
             isScreenDimmed = false;
