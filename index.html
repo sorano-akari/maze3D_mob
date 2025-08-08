@@ -12,26 +12,33 @@
             align-items: center;
             height: 100vh;
             margin: 0;
-            background-color: #10217e; /* ダークブルーの背景 */
-            color: #ecf0f1; /* 明るいテキストカラー */
+            background-color: #10217e;
+            color: #ecf0f1;
+            overflow: hidden; /* 画面がスクリーンアウトしないように修正 */
         }
         .container {
             display: flex;
             flex-direction: column;
             gap: 20px;
             padding: 20px;
-            background-color: #262626; /* コンテナの背景色 */
+            background-color: #262626;
             border-radius: 10px;
             box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+            width: 100%;
+            height: 100%;
+            box-sizing: border-box;
+            max-width: 1200px;
+            max-height: 900px;
         }
         #start-screen {
             display: flex;
             flex-direction: column;
             align-items: center;
             gap: 15px;
+            overflow-y: auto; /* 設定項目が多い場合にスクロールできるように */
         }
         h1 {
-            color: #f1c40f; /* ゴールドのタイトル */
+            color: #f1c40f;
             margin-bottom: 5px;
         }
         label {
@@ -45,6 +52,8 @@
             border-radius: 5px;
             cursor: pointer;
             transition: all 0.3s ease;
+            width: 100%;
+            max-width: 300px;
         }
         select {
             background-color: #4a667a;
@@ -61,32 +70,47 @@
         }
         #game-container {
             display: none;
-            flex-direction: row;
-            align-items: flex-start;
-            gap: 20px;
+            flex-direction: column; /* モバイル対応のため縦方向に変更 */
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+            height: 100%;
         }
         #main-view {
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 15px;
+            gap: 10px;
+            width: 100%;
         }
         #mazeCanvas3D {
             border: 2px solid black;
             background-color: #333;
+            width: 100%;
+            height: auto;
+            max-width: 800px;
+            max-height: 600px;
         }
         #mazeCanvas2D {
             border: 2px solid #7f8c8d;
             background-color: #fff;
+            width: 100%;
+            height: auto;
+            max-width: 300px;
+            max-height: 600px;
         }
         #controls {
             display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
             gap: 10px;
+            width: 100%;
+            margin-top: auto;
         }
         #message {
             font-size: 20px;
             font-weight: bold;
-            color: #2ecc71; /* 緑色のメッセージ */
+            color: #2ecc71;
             min-height: 24px;
         }
         #retry-button {
@@ -112,6 +136,19 @@
         }
         #soundButton:hover {
             background-color: #16a085;
+        }
+        @media (min-width: 768px) {
+            #game-container {
+                flex-direction: row;
+                align-items: flex-start;
+            }
+            #main-view {
+                flex: 1;
+            }
+            #mazeCanvas2D {
+                width: 300px;
+                height: 600px;
+            }
         }
     </style>
 </head>
@@ -221,7 +258,7 @@
         let mobs = []; 
         const mobImage1 = document.getElementById('mobImage1');
         const mobImage2 = document.getElementById('mobImage2');
-        let mobCounter = 0; // 新しいカウンターを追加
+        let mobCounter = 0;
         
         let isScreenDimmed = false;
         let redFilterInterval = null;
@@ -241,9 +278,36 @@
         let stepsTaken = 0;
         let isSoundOn = false;
 
+        let touchStartX = null;
+        let touchStartY = null;
+
         document.addEventListener('DOMContentLoaded', initializeGame);
 
+        function resizeCanvas() {
+            const gameContainerWidth = gameContainer.clientWidth;
+            const gameContainerHeight = gameContainer.clientHeight;
+            const isMobile = window.innerWidth <= 768;
+
+            if (isMobile) {
+                // 3Dキャンバスの幅を画面幅に合わせる
+                canvas3D.width = gameContainerWidth - 20;
+                canvas3D.height = (gameContainerWidth - 20) * (3/4); // アスペクト比を維持
+                // 2Dキャンバスは表示しない
+                canvas2D.style.display = 'none';
+            } else {
+                canvas3D.width = 800;
+                canvas3D.height = 600;
+                canvas2D.width = 300;
+                canvas2D.height = 600;
+                canvas2D.style.display = 'block';
+            }
+            renderGame();
+        }
+
         function initializeGame() {
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
+            
             startButton.addEventListener('click', () => {
                 const [cols, rows] = mazeSizeSelect.value.split(',').map(val => Number(val));
                 currentMazeCols = cols;
@@ -253,6 +317,7 @@
                 mobsAreEnabled = mobDifficultySelect.value !== 'none';
                 startScreen.style.display = 'none';
                 gameContainer.style.display = 'flex';
+                resizeCanvas();
                 bgm.load();
                 bgm.play().then(() => {
                     startGame();
@@ -318,6 +383,54 @@
 
             autoPlayButton.addEventListener('click', toggleAutoPlay);
             soundButton.addEventListener('click', toggleSound);
+
+            canvas3D.addEventListener('touchstart', handleTouchStart, false);
+            canvas3D.addEventListener('touchend', handleTouchEnd, false);
+        }
+
+        function handleTouchStart(e) {
+            e.preventDefault();
+            const touch = e.touches[0];
+            touchStartX = touch.clientX;
+            touchStartY = touch.clientY;
+        }
+
+        function handleTouchEnd(e) {
+            e.preventDefault();
+            if (touchStartX === null || touchStartY === null) {
+                return;
+            }
+            const touch = e.changedTouches[0];
+            const touchEndX = touch.clientX;
+            const touchEndY = touch.clientY;
+
+            const dx = touchEndX - touchStartX;
+            const dy = touchEndY - touchStartY;
+
+            const minSwipeDistance = 50;
+            if (Math.abs(dx) > Math.abs(dy)) {
+                if (Math.abs(dx) > minSwipeDistance) {
+                    if (dx > 0) {
+                        handleKeyPress({ key: 'ArrowRight' });
+                    } else {
+                        handleKeyPress({ key: 'ArrowLeft' });
+                    }
+                } else {
+                    handleKeyPress({ key: 'ArrowUp' });
+                }
+            } else {
+                if (Math.abs(dy) > minSwipeDistance) {
+                    if (dy > 0) {
+                        handleKeyPress({ key: 'ArrowDown' });
+                    } else {
+                        handleKeyPress({ key: 'ArrowUp' });
+                    }
+                } else {
+                    handleKeyPress({ key: 'ArrowUp' });
+                }
+            }
+            touchStartX = null;
+            touchStartY = null;
         }
 
         function toggleSound() {
@@ -498,10 +611,6 @@
                 isScreenDimmed = true;
                 
                 setTimeout(() => {
-                    reAddMobAfterDelay();
-                }, reAddMobDelay);
-
-                setTimeout(() => {
                     blinkingInterval = setInterval(() => {
                         isScreenDimmed = !isScreenDimmed;
                         renderGame();
@@ -594,6 +703,9 @@
         
 
         function drawPseudo3D(redFilterAlpha = 0) {
+            if (!maze || maze.length === 0) {
+                return;
+            }
             const viewDistance = 10;
             const viewWidth = canvas3D.width;
             const viewHeight = canvas3D.height;
@@ -806,6 +918,9 @@
         }
 
         function draw2D() {
+            if (!maze || maze.length === 0 || canvas2D.style.display === 'none') {
+                return;
+            }
             const canvasWidth = canvas2D.clientWidth;
             const canvasHeight = canvas2D.clientHeight;
             canvas2D.width = canvasWidth;
@@ -1136,10 +1251,7 @@ function handleKeyPress(e) {
             isBeingDragged = false;
             isScreenDimmed = false;
             autoPlayButton.textContent = "オートプレイ";
-            canvas3D.width = 800;
-            canvas3D.height = 600;
-            canvas2D.width = 300;
-            canvas2D.height = 600;
+            
             start = { x: 0, y: 0 };
             goal = { x: currentMazeCols - 1, y: currentMazeRows - 1 };
             const selectedAlgorithm = mazeAlgorithmSelect.value;
