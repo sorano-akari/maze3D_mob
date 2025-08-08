@@ -14,7 +14,7 @@
             margin: 0;
             background-color: #10217e;
             color: #ecf0f1;
-            overflow: hidden; /* 画面がスクリーンアウトしないように修正 */
+            overflow: hidden;
         }
         .container {
             display: flex;
@@ -35,7 +35,7 @@
             flex-direction: column;
             align-items: center;
             gap: 15px;
-            overflow-y: auto; /* 設定項目が多い場合にスクロールできるように */
+            overflow-y: auto;
         }
         h1 {
             color: #f1c40f;
@@ -45,7 +45,7 @@
             font-size: 16px;
             margin-top: 5px;
         }
-        select, button {
+        select {
             padding: 10px 15px;
             font-size: 16px;
             border: none;
@@ -54,13 +54,17 @@
             transition: all 0.3s ease;
             width: 100%;
             max-width: 300px;
-        }
-        select {
             background-color: #4a667a;
             color: #ecf0f1;
             border: 1px solid #7f8c8d;
         }
         button {
+            padding: 10px 15px;
+            font-size: 16px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s ease;
             background-color: #3498db;
             color: white;
             font-weight: bold;
@@ -68,9 +72,13 @@
         button:hover {
             background-color: #2980b9;
         }
+        #start-screen button {
+            width: 100%;
+            max-width: 300px;
+        }
         #game-container {
             display: none;
-            flex-direction: column; /* モバイル対応のため縦方向に変更 */
+            flex-direction: column;
             align-items: center;
             gap: 10px;
             width: 100%;
@@ -106,6 +114,13 @@
             gap: 10px;
             width: 100%;
             margin-top: auto;
+            padding: 0 10px; /* 左右の余白を追加 */
+            box-sizing: border-box;
+        }
+        #controls button {
+            flex: 1 1 auto;
+            min-width: 100px; /* ボタンの最小幅を確保 */
+            max-width: 200px; /* ボタンの最大幅を制限 */
         }
         #message {
             font-size: 20px;
@@ -278,9 +293,6 @@
         let stepsTaken = 0;
         let isSoundOn = false;
 
-        let touchStartX = null;
-        let touchStartY = null;
-
         document.addEventListener('DOMContentLoaded', initializeGame);
 
         function resizeCanvas() {
@@ -289,10 +301,8 @@
             const isMobile = window.innerWidth <= 768;
 
             if (isMobile) {
-                // 3Dキャンバスの幅を画面幅に合わせる
                 canvas3D.width = gameContainerWidth - 20;
-                canvas3D.height = (gameContainerWidth - 20) * (3/4); // アスペクト比を維持
-                // 2Dキャンバスは表示しない
+                canvas3D.height = (gameContainerWidth - 20) * (3/4);
                 canvas2D.style.display = 'none';
             } else {
                 canvas3D.width = 800;
@@ -384,53 +394,31 @@
             autoPlayButton.addEventListener('click', toggleAutoPlay);
             soundButton.addEventListener('click', toggleSound);
 
-            canvas3D.addEventListener('touchstart', handleTouchStart, false);
-            canvas3D.addEventListener('touchend', handleTouchEnd, false);
+            canvas3D.addEventListener('touchend', handleCanvasTouchEnd, false);
         }
 
-        function handleTouchStart(e) {
+        function handleCanvasTouchEnd(e) {
             e.preventDefault();
-            const touch = e.touches[0];
-            touchStartX = touch.clientX;
-            touchStartY = touch.clientY;
-        }
+            const rect = canvas3D.getBoundingClientRect();
+            const touchX = e.changedTouches[0].clientX - rect.left;
+            const touchY = e.changedTouches[0].clientY - rect.top;
 
-        function handleTouchEnd(e) {
-            e.preventDefault();
-            if (touchStartX === null || touchStartY === null) {
-                return;
-            }
-            const touch = e.changedTouches[0];
-            const touchEndX = touch.clientX;
-            const touchEndY = touch.clientY;
+            const width = rect.width;
+            const height = rect.height;
 
-            const dx = touchEndX - touchStartX;
-            const dy = touchEndY - touchStartY;
+            const leftRegion = width / 3;
+            const rightRegion = width - width / 3;
+            const bottomRegion = height - height / 3;
 
-            const minSwipeDistance = 50;
-            if (Math.abs(dx) > Math.abs(dy)) {
-                if (Math.abs(dx) > minSwipeDistance) {
-                    if (dx > 0) {
-                        handleKeyPress({ key: 'ArrowRight' });
-                    } else {
-                        handleKeyPress({ key: 'ArrowLeft' });
-                    }
-                } else {
-                    handleKeyPress({ key: 'ArrowUp' });
-                }
+            if (touchX < leftRegion) {
+                handleKeyPress({ key: 'ArrowLeft' });
+            } else if (touchX > rightRegion) {
+                handleKeyPress({ key: 'ArrowRight' });
+            } else if (touchY > bottomRegion) {
+                handleKeyPress({ key: 'ArrowDown' });
             } else {
-                if (Math.abs(dy) > minSwipeDistance) {
-                    if (dy > 0) {
-                        handleKeyPress({ key: 'ArrowDown' });
-                    } else {
-                        handleKeyPress({ key: 'ArrowUp' });
-                    }
-                } else {
-                    handleKeyPress({ key: 'ArrowUp' });
-                }
+                handleKeyPress({ key: 'ArrowUp' });
             }
-            touchStartX = null;
-            touchStartY = null;
         }
 
         function toggleSound() {
@@ -469,7 +457,7 @@
                 return {
                     x: x,
                     y: y,
-                    direction: 0, 
+                    direction: 0,
                     image: selectedImage,
                     filter: `hue-rotate(${randomHue}deg)`
                 };
@@ -500,7 +488,7 @@
                 }
             }
         }
-        
+
         function reAddMobAfterDelay() {
             if (!mobsAreEnabled) return;
             const newMob = createMob();
